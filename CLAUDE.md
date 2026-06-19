@@ -115,7 +115,48 @@ tests/           pytest (network-free; uses tests/fixtures/sample_feed.xml)
 
 ## Status / plans
 
-- `_plans/0001-bbv2-design.md` — design (decision-complete).
-- `_plans/0002-ingestion-core.md` — this phase.
-- Next phases: consumer API → agent discovery (Brave) → multi-user + settings +
-  email → dashboard (see `_documentation/ui-style.md`) → briefs → engagement.
+Shipped: `0002` ingestion core · `0003` consumer API · `0004` Brave discovery ·
+`0005` multi-user + settings + email · `0006/0007` dashboard (design + Firebase
+API) · dashboard **frontend** (`dashboard/`, Vite+React+TS, custom tokens,
+Firebase login, Headlines/Topics/TopicDetail/Settings, witty loading phrases).
+
+## WHERE WE ARE — pick up here (2026-06-19)
+
+The dashboard works end-to-end: log in (Firebase) → Topics → open a topic →
+**Discover sources** (Brave) → **Approve** → **Collect now** → items show in
+Headlines. `make dev` runs backend(:8080)+frontend(:5173) together.
+
+**Live creds status:** backend Firebase service-account is wired (`FIREBASE_CONFIG`,
+project `briefbot-v2`, init verified). Frontend `dashboard/.env` still **needs
+`VITE_FIREBASE_API_KEY` + `VITE_FIREBASE_APP_ID`** (web config was deleted; user
+to provide or restore `config/firebase.json`). Login works once those are set.
+
+### OPEN BUGS to fix next
+
+1. **"Approve all" → "failed to fetch".** Single approve works; the bulk path
+   (`Promise.all` of approve POSTs in `dashboard/src/pages/TopicDetail.tsx`)
+   fails. Likely **concurrent writes on the one shared SQLite connection**
+   (`bbv2 serve` uses `Store(check_same_thread=False)`; the threadpool runs the
+   POSTs in parallel → lock/"recursive cursor"/dropped connection → browser sees
+   "failed to fetch"). **Fix:** add a backend **bulk approve** endpoint
+   (`POST /api/topics/{slug}/sources/approve-all` or accept ids) that does the
+   updates on the server in one request; or serialize client-side (await in a
+   loop, not Promise.all); ideally also guard the store with a write lock.
+2. **Old items in Headlines (e.g. "2207d ago").** Collect ingests items with very
+   old/garbage `published_at` (some feeds carry stale entries). Expectation:
+   pulled stories should be ~that day. **Fix:** in `bbv2/collect.py`, **filter
+   items to recent** (e.g. drop items whose `published_at` is older than N days,
+   default ~2–3) before upsert; also sanity-check date parsing in
+   `normalize.py`/`util.parse_to_utc_iso` (a misparse could yield epoch-ish
+   dates). Keep it configurable.
+
+### Then continue
+
+- Wire the frontend env once API key/appId arrive; live-test login + the loop.
+- Remaining roadmap (`_documentation/roadmap.md`): non-English filtering, LLM
+  briefs (use **Haiku**), engagement (like/favorites/discuss), HN/arXiv fetchers.
+- Trader data platform (`../trader/_plans/0017`) stays parked until bbv2 steady;
+  first piece there is the kline collector.
+
+Build order ref: `0001` design → consumer API → discovery → multi-user → dashboard
+→ briefs → engagement.
