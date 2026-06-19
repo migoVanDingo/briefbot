@@ -18,3 +18,5 @@ secrets/
 *.key
 config/*
 *firebase-adminsdk*.json
+
+.DS_Store
