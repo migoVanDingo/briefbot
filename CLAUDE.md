@@ -37,6 +37,13 @@ python -m bbv2 source add --topic crypto --type site --url <site-url> --name "Si
 python -m bbv2 collect [--topic crypto]
 python -m bbv2 items --topic crypto --since 24h --limit 20
 
+# Multi-user + email (0005)
+python -m bbv2 user add --name "Mom" --email mom@example.com
+python -m bbv2 subscribe --user mom@example.com --topic crypto
+python -m bbv2 settings show --user mom@example.com
+python -m bbv2 settings set --user mom@example.com --email-enabled true --digest-limit 15
+python -m bbv2 digest --dry-run     # LogNotifier; real Mailgun when MAILGUN_* set
+
 # Source discovery (0004) — Brave web search → candidate feeds → human approval
 python -m bbv2 discover --topic crypto [--per-query 8] [--max 20]
 python -m bbv2 source candidates --topic crypto
@@ -65,9 +72,12 @@ bbv2/
   brave.py       Brave Web Search client (source discovery)
   discovery.py   topic → search → resolve feeds → candidate sources
   score.py       slim recency × source-weight (bbv2-specific)
-  store.py       bbv2 SQLite schema + queries (own DB) + api_tokens, candidates
+  store.py       bbv2 SQLite schema + queries (own DB): topics/sources/items,
+                 tokens/candidates, users/subscriptions/settings
   collect.py     pipeline wiring
   api.py         FastAPI consumer API (token-auth read: /health /topics /items)
+  notify.py      Notifier protocol + LogNotifier + MailgunNotifier
+  digest.py      per-user recent-items digest (non-LLM)
   cli.py         `python -m bbv2 …`
 scripts/collect.sh
 tests/           pytest (network-free; uses tests/fixtures/sample_feed.xml)

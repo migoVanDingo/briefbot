@@ -174,6 +174,91 @@ def cmd_items(args: argparse.Namespace) -> None:
     store.close()
 
 
+def _str2bool(value: str) -> bool:
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _require_user(store: Store, email: str):
+    user = store.get_user(email)
+    if not user:
+        raise SystemExit(f"unknown user '{email}' — add it first")
+    return user
+
+
+def _require_topic(store: Store, slug: str):
+    topic = store.get_topic(slug)
+    if not topic:
+        raise SystemExit(f"unknown topic '{slug}'")
+    return topic
+
+
+def cmd_user_add(args: argparse.Namespace) -> None:
+    store = _store()
+    uid = store.add_user(args.name, args.email, role=args.role)
+    print(f"user '{args.name}' <{args.email}> (id={uid})")
+    store.close()
+
+
+def cmd_user_list(_: argparse.Namespace) -> None:
+    store = _store()
+    for u in store.list_users():
+        print(f"id={u['id']:<3} {u['name']:16} {u['email']:28} {u['role']}")
+    store.close()
+
+
+def cmd_subscribe(args: argparse.Namespace) -> None:
+    store = _store()
+    user = _require_user(store, args.user)
+    topic = _require_topic(store, args.topic)
+    store.subscribe(int(user["id"]), int(topic["id"]))
+    print(f"{args.user} subscribed to '{args.topic}'")
+    store.close()
+
+
+def cmd_unsubscribe(args: argparse.Namespace) -> None:
+    store = _store()
+    user = _require_user(store, args.user)
+    topic = _require_topic(store, args.topic)
+    store.unsubscribe(int(user["id"]), int(topic["id"]))
+    print(f"{args.user} unsubscribed from '{args.topic}'")
+    store.close()
+
+
+def cmd_settings_show(args: argparse.Namespace) -> None:
+    store = _store()
+    user = _require_user(store, args.user)
+    s = store.get_user_settings(int(user["id"]))
+    subs = [t["slug"] for t in store.user_subscriptions(int(user["id"]))]
+    print(f"{user['email']}")
+    print(f"  email_enabled : {bool(s['email_enabled'])}")
+    print(f"  digest_limit  : {s['digest_limit']}")
+    print(f"  last_digest_at: {s['last_digest_at']}")
+    print(f"  subscriptions : {', '.join(subs) or '(none)'}")
+    store.close()
+
+
+def cmd_settings_set(args: argparse.Namespace) -> None:
+    store = _store()
+    user = _require_user(store, args.user)
+    store.set_user_settings(
+        int(user["id"]),
+        email_enabled=args.email_enabled,
+        digest_limit=args.digest_limit,
+    )
+    print(f"updated settings for {user['email']}")
+    store.close()
+
+
+def cmd_digest(args: argparse.Namespace) -> None:
+    from .digest import run_digests
+    from .notify import default_notifier
+
+    store = _store()
+    stats = run_digests(store, default_notifier(dry_run=args.dry_run))
+    print(json.dumps(stats, indent=2))
+    store.close()
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="bbv2")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -240,6 +325,39 @@ def build_parser() -> argparse.ArgumentParser:
     p_serve.add_argument("--host", default="127.0.0.1")
     p_serve.add_argument("--port", type=int, default=8080)
     p_serve.set_defaults(func=cmd_serve)
+
+    p_user = sub.add_parser("user")
+    user_sub = p_user.add_subparsers(dest="user_cmd", required=True)
+    p_ua = user_sub.add_parser("add")
+    p_ua.add_argument("--name", required=True)
+    p_ua.add_argument("--email", required=True)
+    p_ua.add_argument("--role", default="human", choices=["human", "service"])
+    p_ua.set_defaults(func=cmd_user_add)
+    user_sub.add_parser("list").set_defaults(func=cmd_user_list)
+
+    p_sub = sub.add_parser("subscribe")
+    p_sub.add_argument("--user", required=True)
+    p_sub.add_argument("--topic", required=True)
+    p_sub.set_defaults(func=cmd_subscribe)
+    p_unsub = sub.add_parser("unsubscribe")
+    p_unsub.add_argument("--user", required=True)
+    p_unsub.add_argument("--topic", required=True)
+    p_unsub.set_defaults(func=cmd_unsubscribe)
+
+    p_settings = sub.add_parser("settings")
+    settings_sub = p_settings.add_subparsers(dest="settings_cmd", required=True)
+    p_ss = settings_sub.add_parser("show")
+    p_ss.add_argument("--user", required=True)
+    p_ss.set_defaults(func=cmd_settings_show)
+    p_sset = settings_sub.add_parser("set")
+    p_sset.add_argument("--user", required=True)
+    p_sset.add_argument("--email-enabled", type=_str2bool, dest="email_enabled")
+    p_sset.add_argument("--digest-limit", type=int, dest="digest_limit")
+    p_sset.set_defaults(func=cmd_settings_set)
+
+    p_digest = sub.add_parser("digest")
+    p_digest.add_argument("--dry-run", action="store_true", dest="dry_run")
+    p_digest.set_defaults(func=cmd_digest)
 
     return parser
 

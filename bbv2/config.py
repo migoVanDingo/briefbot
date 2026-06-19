@@ -39,3 +39,13 @@ def http_timeout() -> int:
 
 def brave_api_key() -> str | None:
     return os.getenv("BRAVESEARCH_API_KEY") or None
+
+
+def mailgun_config() -> dict[str, str] | None:
+    """Mailgun settings if fully configured, else None (→ use LogNotifier)."""
+    api_key = os.getenv("MAILGUN_API_KEY")
+    domain = os.getenv("MAILGUN_DOMAIN")
+    sender = os.getenv("MAILGUN_FROM")
+    if api_key and domain and sender:
+        return {"api_key": api_key, "domain": domain, "from": sender}
+    return None

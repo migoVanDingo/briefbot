@@ -91,6 +91,27 @@ CREATE TABLE IF NOT EXISTS token_topics (
     PRIMARY KEY (token, topic_slug)
 );
 
+CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    email TEXT NOT NULL UNIQUE,
+    role TEXT NOT NULL DEFAULT 'human',
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS subscriptions (
+    user_id INTEGER NOT NULL,
+    topic_id INTEGER NOT NULL,
+    PRIMARY KEY (user_id, topic_id)
+);
+
+CREATE TABLE IF NOT EXISTS user_settings (
+    user_id INTEGER NOT NULL PRIMARY KEY,
+    email_enabled INTEGER NOT NULL DEFAULT 1,
+    digest_limit INTEGER NOT NULL DEFAULT 10,
+    last_digest_at TEXT
+);
+
 CREATE INDEX IF NOT EXISTS idx_items_published ON items(published_at);
 CREATE INDEX IF NOT EXISTS idx_items_fetched ON items(fetched_at);
 CREATE INDEX IF NOT EXISTS idx_item_topics_topic ON item_topics(topic_id);
@@ -388,3 +409,109 @@ class Store:
                 }
             )
         return out
+
+    # ---- users / subscriptions / settings ----
+    def add_user(self, name: str, email: str, role: str = "human") -> int:
+        self.conn.execute(
+            "INSERT OR IGNORE INTO users (name, email, role, created_at) VALUES (?, ?, ?, ?)",
+            (name, email, role, utc_now_iso()),
+        )
+        row = self.conn.execute(
+            "SELECT id FROM users WHERE email = ?", (email,)
+        ).fetchone()
+        uid = int(row["id"])
+        self.conn.execute(
+            "INSERT OR IGNORE INTO user_settings (user_id) VALUES (?)", (uid,)
+        )
+        self.conn.commit()
+        return uid
+
+    def get_user(self, email: str) -> sqlite3.Row | None:
+        return self.conn.execute(
+            "SELECT * FROM users WHERE email = ?", (email,)
+        ).fetchone()
+
+    def list_users(self) -> list[sqlite3.Row]:
+        return self.conn.execute("SELECT * FROM users ORDER BY name").fetchall()
+
+    def subscribe(self, user_id: int, topic_id: int) -> None:
+        self.conn.execute(
+            "INSERT OR IGNORE INTO subscriptions (user_id, topic_id) VALUES (?, ?)",
+            (user_id, topic_id),
+        )
+        self.conn.commit()
+
+    def unsubscribe(self, user_id: int, topic_id: int) -> None:
+        self.conn.execute(
+            "DELETE FROM subscriptions WHERE user_id = ? AND topic_id = ?",
+            (user_id, topic_id),
+        )
+        self.conn.commit()
+
+    def user_subscriptions(self, user_id: int) -> list[sqlite3.Row]:
+        return self.conn.execute(
+            """SELECT t.* FROM topics t
+               JOIN subscriptions s ON s.topic_id = t.id
+               WHERE s.user_id = ? ORDER BY t.slug""",
+            (user_id,),
+        ).fetchall()
+
+    def get_user_settings(self, user_id: int) -> sqlite3.Row:
+        self.conn.execute(
+            "INSERT OR IGNORE INTO user_settings (user_id) VALUES (?)", (user_id,)
+        )
+        self.conn.commit()
+        return self.conn.execute(
+            "SELECT * FROM user_settings WHERE user_id = ?", (user_id,)
+        ).fetchone()
+
+    def set_user_settings(
+        self,
+        user_id: int,
+        email_enabled: bool | None = None,
+        digest_limit: int | None = None,
+        last_digest_at: str | None = None,
+    ) -> None:
+        self.get_user_settings(user_id)  # ensure row exists
+        sets: list[str] = []
+        params: list[Any] = []
+        if email_enabled is not None:
+            sets.append("email_enabled = ?")
+            params.append(1 if email_enabled else 0)
+        if digest_limit is not None:
+            sets.append("digest_limit = ?")
+            params.append(int(digest_limit))
+        if last_digest_at is not None:
+            sets.append("last_digest_at = ?")
+            params.append(last_digest_at)
+        if not sets:
+            return
+        params.append(user_id)
+        self.conn.execute(
+            f"UPDATE user_settings SET {', '.join(sets)} WHERE user_id = ?", params
+        )
+        self.conn.commit()
+
+    def users_with_email_enabled(self) -> list[sqlite3.Row]:
+        return self.conn.execute(
+            """SELECT u.* FROM users u
+               JOIN user_settings s ON s.user_id = u.id
+               WHERE s.email_enabled = 1 ORDER BY u.id"""
+        ).fetchall()
+
+    def items_for_user(
+        self, user_id: int, since_iso: str | None = None, limit: int = 10
+    ) -> list[sqlite3.Row]:
+        sql = [
+            "SELECT DISTINCT i.* FROM items i",
+            "JOIN item_topics it ON it.item_id = i.item_id",
+            "JOIN subscriptions sub ON sub.topic_id = it.topic_id",
+            "WHERE sub.user_id = ?",
+        ]
+        params: list[Any] = [user_id]
+        if since_iso:
+            sql.append("AND i.fetched_at > ?")
+            params.append(since_iso)
+        sql.append("ORDER BY i.fetched_at DESC LIMIT ?")
+        params.append(limit)
+        return self.conn.execute(" ".join(sql), params).fetchall()
