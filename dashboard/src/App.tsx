@@ -10,6 +10,7 @@ import { AppShell } from "./components/AppShell";
 import { Login } from "./pages/Login";
 import { Headlines } from "./pages/Headlines";
 import { Topics } from "./pages/Topics";
+import { TopicDetail } from "./pages/TopicDetail";
 import { Settings } from "./pages/Settings";
 
 export default function App() {
@@ -44,6 +45,7 @@ export default function App() {
           <Route element={<AppShell />}>
             <Route index element={<Headlines />} />
             <Route path="topics" element={<Topics />} />
+            <Route path="topics/:slug" element={<TopicDetail />} />
             <Route path="settings" element={<Settings />} />
           </Route>
         </Routes>

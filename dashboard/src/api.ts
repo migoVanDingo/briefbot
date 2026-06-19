@@ -50,6 +50,32 @@ export interface Settings {
   digest_limit: number;
 }
 
+export interface Source {
+  id: number;
+  name: string;
+  url: string;
+  type: string;
+  status: string;
+}
+
+export interface DiscoverStats {
+  queries: number;
+  results: number;
+  homepages: number;
+  candidates: number;
+  errors: number;
+  added: string[];
+}
+
+export interface CollectStats {
+  sources: number;
+  feeds: number;
+  items: number;
+  new: number;
+  not_modified: number;
+  errors: number;
+}
+
 export const api = {
   me: () => req<Me>("/api/me"),
   topics: () => req<{ topics: Topic[] }>("/api/topics").then((d) => d.topics),
@@ -68,4 +94,15 @@ export const api = {
   getSettings: () => req<Settings>("/api/settings"),
   putSettings: (body: Partial<Settings>) =>
     req("/api/settings", { method: "PUT", body: JSON.stringify(body) }),
+  discover: (slug: string) =>
+    req<DiscoverStats>(`/api/topics/${slug}/discover`, { method: "POST" }),
+  collect: (slug: string) =>
+    req<CollectStats>(`/api/topics/${slug}/collect`, { method: "POST" }),
+  sources: (slug: string, status: "active" | "candidate") =>
+    req<{ sources: Source[] }>(
+      `/api/topics/${slug}/sources?status=${status}`,
+    ).then((d) => d.sources),
+  approve: (id: number) =>
+    req(`/api/sources/${id}/approve`, { method: "POST" }),
+  reject: (id: number) => req(`/api/sources/${id}/reject`, { method: "POST" }),
 };

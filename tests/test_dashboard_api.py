@@ -70,6 +70,31 @@ def test_settings_roundtrip():
     assert s["email_enabled"] is False and s["digest_limit"] == 7
 
 
+def test_sources_list_approve_and_empty_collect():
+    store = Store(":memory:", check_same_thread=False)
+    c = _client(store)
+    c.get("/api/me", headers=AUTH)
+    tid = store.add_topic("crypto", "Crypto")
+    sid = store.add_source("rss", "https://x/feed", "X", status="candidate")
+    store.link_topic_source(tid, sid)
+
+    cands = c.get(
+        "/api/topics/crypto/sources?status=candidate", headers=AUTH
+    ).json()["sources"]
+    assert [s["id"] for s in cands] == [sid]
+
+    assert c.post(f"/api/sources/{sid}/approve", headers=AUTH).status_code == 200
+    active = c.get(
+        "/api/topics/crypto/sources?status=active", headers=AUTH
+    ).json()["sources"]
+    assert [s["id"] for s in active] == [sid]
+
+    # collect on a topic with no active sources is network-free and returns zeros.
+    store.add_topic("empty", "Empty")
+    stats = c.post("/api/topics/empty/collect", headers=AUTH).json()
+    assert stats["sources"] == 0 and stats["new"] == 0
+
+
 def test_headlines_only_subscribed():
     store = Store(":memory:", check_same_thread=False)
     c = _client(store)

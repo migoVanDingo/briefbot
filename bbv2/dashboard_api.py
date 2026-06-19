@@ -105,6 +105,13 @@ def add_dashboard_routes(app: FastAPI, store: Store, verifier: Verifier) -> None
         except DiscoveryError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
 
+    @router.post("/topics/{slug}/collect")
+    def collect_topic(slug: str, user: dict = Depends(current_user)) -> dict[str, Any]:
+        from .collect import collect as run_collect
+
+        _topic_or_404(slug)
+        return run_collect(store, slug)
+
     @router.get("/topics/{slug}/sources")
     def sources(
         slug: str, status: str = "active", user: dict = Depends(current_user)

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { api, type Topic } from "../api";
 import { useToasts } from "../state/toasts";
 
@@ -82,15 +83,22 @@ export function Topics() {
           {topics.map((t) => (
             <li key={t.slug} className="list-row">
               <div>
-                <div className="list-title">{t.name}</div>
+                <Link to={`/topics/${t.slug}`} className="list-title link">
+                  {t.name}
+                </Link>
                 <div className="muted small">{t.slug}</div>
               </div>
-              <button
-                className={`btn ${t.subscribed ? "ghost" : "primary"}`}
-                onClick={() => toggle(t)}
-              >
-                {t.subscribed ? "Subscribed ✓" : "Subscribe"}
-              </button>
+              <div className="src-actions">
+                <Link to={`/topics/${t.slug}`} className="btn ghost">
+                  Sources
+                </Link>
+                <button
+                  className={`btn ${t.subscribed ? "ghost" : "primary"}`}
+                  onClick={() => toggle(t)}
+                >
+                  {t.subscribed ? "Subscribed ✓" : "Subscribe"}
+                </button>
+              </div>
             </li>
           ))}
           {topics.length === 0 && (
