@@ -16,3 +16,5 @@ serviceAccountKey*.json
 secrets/
 *.pem
 *.key
+config/*
+*firebase-adminsdk*.json
