@@ -62,6 +62,21 @@ pytest        # offline tests (no network)
 
 `scripts/collect.sh` is the hourly runner (cron/launchd on the server).
 
+### Dashboard (frontend)
+
+`dashboard/` is a separate Vite + React + TS app (custom CSS tokens, Firebase
+auth) — **not** containerized.
+
+```bash
+cd dashboard
+npm install
+npm run dev        # http://localhost:5173  (talks to `bbv2 serve` on :8080)
+```
+
+Needs `dashboard/.env` (gitignored) with the Firebase **web** config
+(`VITE_FIREBASE_*`) + `VITE_API_BASE`. The backend (`bbv2 serve`) must be running
+for login/data.
+
 ## Project layout
 
 ```
