@@ -4,3 +4,15 @@ __pycache__/
 .pytest_cache/
 data/
 .env
+
+# Secrets / credentials — never commit
+.env
+.env.*
+!.env.example
+config/firebase.json
+*firebase*service*account*.json
+*serviceaccount*.json
+serviceAccountKey*.json
+secrets/
+*.pem
+*.key
