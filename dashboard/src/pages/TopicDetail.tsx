@@ -3,6 +3,8 @@ import { useParams, Link } from "react-router-dom";
 import { api, type Source, type Item } from "../api";
 import { useToasts } from "../state/toasts";
 import { timeAgo } from "../lib/format";
+import { LoadingBanner } from "../components/LoadingBanner";
+import { DISCOVER_PHRASES, COLLECT_PHRASES } from "../lib/phrases";
 
 export function TopicDetail() {
   const { slug = "" } = useParams();
@@ -80,6 +82,18 @@ export function TopicDetail() {
     }
   };
 
+  const approveAll = async () => {
+    const n = candidates.length;
+    try {
+      await Promise.all(candidates.map((s) => api.approve(s.id)));
+      push(`Approved ${n} source${n === 1 ? "" : "s"}`, "success");
+      setCandidates([]);
+      setActive(await api.sources(slug, "active"));
+    } catch (e) {
+      push(String(e), "error");
+    }
+  };
+
   return (
     <div className="page">
       <Link to="/topics" className="back-link">
@@ -97,9 +111,19 @@ export function TopicDetail() {
         </div>
       </div>
 
+      {discovering && <LoadingBanner phrases={DISCOVER_PHRASES} />}
+      {collecting && <LoadingBanner phrases={COLLECT_PHRASES} />}
+
       {candidates.length > 0 && (
         <section className="section">
-          <h2 className="section-title">Candidate sources — approve the good ones</h2>
+          <div className="section-head">
+            <h2 className="section-title">
+              Candidate sources — approve the good ones
+            </h2>
+            <button className="btn primary" onClick={approveAll}>
+              Approve all ({candidates.length})
+            </button>
+          </div>
           <ul className="list">
             {candidates.map((s) => (
               <li key={s.id} className="list-row">
