@@ -1,0 +1,99 @@
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from bbv2.dashboard_api import add_dashboard_routes
+from bbv2.store import Store
+
+
+def _fake_verifier(token: str) -> dict:
+    if token == "good":
+        return {"email": "me@example.com", "name": "Me"}
+    raise ValueError("bad token")
+
+
+def _client(store: Store) -> TestClient:
+    app = FastAPI()
+    add_dashboard_routes(app, store, _fake_verifier)
+    return TestClient(app)
+
+
+AUTH = {"Authorization": "Bearer good"}
+
+
+def test_auth_required():
+    c = _client(Store(":memory:", check_same_thread=False))
+    assert c.get("/api/me").status_code == 401
+    assert c.get("/api/me", headers={"Authorization": "Bearer nope"}).status_code == 401
+
+
+def test_me_auto_provisions_user():
+    store = Store(":memory:", check_same_thread=False)
+    c = _client(store)
+    r = c.get("/api/me", headers=AUTH)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["user"]["email"] == "me@example.com"
+    assert body["settings"]["email_enabled"] is True
+    assert body["subscriptions"] == []
+    # user row was created
+    assert store.get_user("me@example.com") is not None
+
+
+def test_topics_create_subscribe_flag():
+    store = Store(":memory:", check_same_thread=False)
+    c = _client(store)
+    c.get("/api/me", headers=AUTH)  # provision user
+
+    c.post("/api/topics", json={"slug": "crypto", "name": "Crypto"}, headers=AUTH)
+    before = c.get("/api/topics", headers=AUTH).json()["topics"]
+    assert before[0]["subscribed"] is False
+
+    assert c.post("/api/topics/crypto/subscribe", headers=AUTH).status_code == 200
+    after = c.get("/api/topics", headers=AUTH).json()["topics"]
+    assert after[0]["subscribed"] is True
+
+    c.delete("/api/topics/crypto/subscribe", headers=AUTH)
+    assert c.get("/api/topics", headers=AUTH).json()["topics"][0]["subscribed"] is False
+
+
+def test_subscribe_unknown_topic_404():
+    c = _client(Store(":memory:", check_same_thread=False))
+    c.get("/api/me", headers=AUTH)
+    assert c.post("/api/topics/nope/subscribe", headers=AUTH).status_code == 404
+
+
+def test_settings_roundtrip():
+    c = _client(Store(":memory:", check_same_thread=False))
+    c.get("/api/me", headers=AUTH)
+    c.put("/api/settings", json={"email_enabled": False, "digest_limit": 7}, headers=AUTH)
+    s = c.get("/api/settings", headers=AUTH).json()
+    assert s["email_enabled"] is False and s["digest_limit"] == 7
+
+
+def test_headlines_only_subscribed():
+    store = Store(":memory:", check_same_thread=False)
+    c = _client(store)
+    c.get("/api/me", headers=AUTH)
+    tid = store.add_topic("crypto", "Crypto")
+    store.upsert_item(
+        {
+            "item_id": "a",
+            "dedupe_key": "url:a",
+            "canonical_url": "https://e/a",
+            "source_id": "1",
+            "source_name": "S",
+            "title": "Hello",
+            "url": "https://e/a",
+            "published_at": "2025-01-01T00:00:00+00:00",
+            "fetched_at": "2025-01-01T00:00:00+00:00",
+            "summary": "",
+            "score": 1.0,
+            "raw": {},
+        }
+    )
+    store.map_item_topic("a", tid)
+    # not subscribed yet → empty
+    assert c.get("/api/headlines", headers=AUTH).json()["items"] == []
+    c.post("/api/topics/crypto/subscribe", headers=AUTH)
+    items = c.get("/api/headlines", headers=AUTH).json()["items"]
+    assert [i["item_id"] for i in items] == ["a"]

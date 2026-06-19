@@ -41,6 +41,22 @@ def brave_api_key() -> str | None:
     return os.getenv("BRAVESEARCH_API_KEY") or None
 
 
+# LLM — bbv2 uses Claude Haiku for all LLM work (cost).
+ANTHROPIC_DEFAULT_MODEL = "claude-haiku-4-5-20251001"
+
+
+def anthropic_api_key() -> str | None:
+    return os.getenv("ANTHROPIC_API_KEY") or None
+
+
+def anthropic_model() -> str:
+    return os.getenv("ANTHROPIC_MODEL") or ANTHROPIC_DEFAULT_MODEL
+
+
+def firebase_config_path() -> str | None:
+    return os.getenv("FIREBASE_CONFIG") or None
+
+
 def mailgun_config() -> dict[str, str] | None:
     """Mailgun settings if fully configured, else None (→ use LogNotifier).
 

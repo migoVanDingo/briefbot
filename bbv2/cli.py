@@ -151,12 +151,23 @@ def cmd_token_list(_: argparse.Namespace) -> None:
 
 def cmd_serve(args: argparse.Namespace) -> None:
     import uvicorn
+    from fastapi.middleware.cors import CORSMiddleware
 
     from .api import create_app
+    from .auth import verify_token
+    from .dashboard_api import add_dashboard_routes
 
-    # check_same_thread=False: API reads on a threadpool over one connection (WAL).
+    # check_same_thread=False: API serves on a threadpool over one connection (WAL).
     store = Store(config.db_path(), check_same_thread=False)
-    app = create_app(store)
+    app = create_app(store)  # consumer API (service tokens)
+    add_dashboard_routes(app, store, verify_token)  # /api/* (Firebase)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
     uvicorn.run(app, host=args.host, port=args.port)
 
 

@@ -53,7 +53,9 @@ python -m bbv2 source approve <id>   |   python -m bbv2 source reject <id>
 python -m bbv2 token create --label trader --topics crypto,markets,geopolitics
 python -m bbv2 token list
 python -m bbv2 serve --host 127.0.0.1 --port 8080
-#   GET /health · GET /topics · GET /items?topic=&since=&limit=  (Bearer token)
+#   consumer API (service token): GET /health /topics /items
+#   dashboard API (Firebase ID token, 0007): /api/me /api/topics /api/headlines …
+#   needs FIREBASE_CONFIG = path to the Admin *service-account* JSON
 
 pytest        # offline tests (no network)
 ```
@@ -75,7 +77,9 @@ bbv2/
   store.py       bbv2 SQLite schema + queries (own DB): topics/sources/items,
                  tokens/candidates, users/subscriptions/settings
   collect.py     pipeline wiring
-  api.py         FastAPI consumer API (token-auth read: /health /topics /items)
+  api.py         FastAPI consumer API (service-token read: /health /topics /items)
+  auth.py        Firebase ID-token verification (dashboard)
+  dashboard_api.py  /api/* routes (Firebase auth) — me/topics/sources/headlines/settings
   notify.py      Notifier protocol + LogNotifier + MailgunNotifier
   digest.py      per-user recent-items digest (non-LLM)
   cli.py         `python -m bbv2 …`

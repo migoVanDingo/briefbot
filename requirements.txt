@@ -5,9 +5,10 @@ requests==2.32.5
 python-dateutil==2.9.0.post0
 python-dotenv==1.2.1
 
-# Consumer API (0003)
+# Consumer API (0003) + dashboard API (0007)
 fastapi==0.135.1
 uvicorn==0.41.0
+firebase-admin==7.0.0
 
 # Dev
 pytest>=8.0
