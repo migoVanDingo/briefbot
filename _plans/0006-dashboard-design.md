@@ -20,35 +20,59 @@ new surface on bbv2's existing FastAPI app, separate from the service-token
 
 ## Stack decision
 
-- **Frontend:** React 18 + **Vite + TypeScript**, plain CSS with **design tokens**
-  (single source like trader's `theme.ts` + injected CSS vars), **Zustand**,
-  **react-router**. **No MUI** — og's MUI is exactly the rounded/pill look we're
-  moving away from; our own tokens give full control (low radius, distinct
-  light/dark accents, snackbars).
+- **Frontend:** React 18 + **Vite + TypeScript** in a **`dashboard/`** folder
+  (not containerized — like trader). **Styling: custom CSS design tokens** (single
+  source `theme.ts` + injected CSS vars), **Zustand**, **react-router**, **Firebase
+  web SDK** for auth.
+  - *On MUI:* MUI is fine (you use it elsewhere) — og's pill-shaped look was custom
+    styling, not MUI itself. We're going **custom tokens** anyway for full control
+    over the low-radius/accent look and to match the trader app's patterns. Easy to
+    swap to a themed MUI later if preferred.
 - **Backend:** extend bbv2's FastAPI with dashboard routes under `/api/*`
-  (session auth), alongside the consumer API. CORS allowed for the Vite dev
-  origin.
+  (**Firebase auth**, below), alongside the consumer API. CORS allowed for the
+  Vite dev origin.
 - **Snackbars:** a small toasts store + component (reimplement trader's `Toasts`
   in bbv2's style).
 
 This mirrors the trader app's architecture, so patterns (tokens, Zustand,
 Toasts, hooks) carry over.
 
-## Auth (personal scale)
+## Auth — Firebase (Google + email/password)
 
-Intentionally minimal for **local, personal** use (me + mom + brother):
-`POST /api/login {email}` → if the user exists, create a **session token**
-(`sessions(token, user_id, created_at)`), return it; the client stores it and
-sends `Authorization: Bearer <session>`. No passwords. **Harden before any
-public exposure** (passcode/allowlist/proper auth). Separate from 0003 service
-tokens.
+Mirrors the mass-platform pattern (`mass-frontend` + `mass-user-management`),
+simplified for bbv2:
 
-## Backend dashboard API (`/api/*`, session auth)
+- **Frontend:** Firebase web SDK. `signInWithPopup(GoogleAuthProvider)` and
+  `signInWithEmailAndPassword`; after login `user.getIdToken()` is sent as
+  `Authorization: Bearer <firebase_id_token>` on every `/api/*` request.
+- **Backend:** `firebase-admin` verifies the ID token **per request**
+  (`auth.verify_id_token(token, clock_skew_seconds=10)` — the clock-skew detail is
+  from mass) and **auto-provisions** the user on first sight (upsert into `users`
+  by email; `name` from the token, `role='human'`). No separate session
+  table/JWT — Firebase manages token lifecycle.
+- **Why simpler than mass:** mass issues its own platform JWT to share auth across
+  many services; bbv2 is one service, so per-request verification is enough. The
+  exchange→session pattern is an easy future upgrade.
+
+Separate from the 0003 service-token consumer API. Harden (allowlist of permitted
+emails) before any non-local exposure.
+
+### Config / creds needed (you'll provide)
+
+- **Frontend** (`dashboard/.env`): `VITE_FIREBASE_API_KEY`, `…_AUTH_DOMAIN`,
+  `…_PROJECT_ID`, `…_STORAGE_BUCKET`, `…_MESSAGING_SENDER_ID`, `…_APP_ID`.
+- **Backend** (bbv2 `.env`): `FIREBASE_CONFIG` = path to the Firebase **service
+  account** JSON (for `firebase-admin`). Enable Google + Email/Password providers
+  in the Firebase console.
+
+## Backend dashboard API (`/api/*`, Firebase bearer)
+
+Every `/api/*` route is protected by a dependency that verifies the Firebase ID
+token and resolves (auto-provisioning) the user.
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| POST | `/api/login` | email → session token |
-| GET | `/api/me` | user + settings + subscriptions |
+| GET | `/api/me` | verify token, upsert user; return user + settings + subscriptions |
 | GET | `/api/topics` | all topics (+ `subscribed` flag) |
 | POST | `/api/topics` | create a topic |
 | POST/DELETE | `/api/topics/{slug}/subscribe` | (un)subscribe |
@@ -87,9 +111,10 @@ phase.
 
 ## Build order (phased → own plans)
 
-1. **Dashboard API** — sessions + the `/api/*` routes above + CORS.
-2. **Frontend shell** — Vite+TS scaffold, tokens/theme (light/dark), Zustand,
-   router, Toasts, login + `/api/me`.
+1. **Dashboard API** — `firebase-admin` token verification + user auto-provision,
+   the `/api/*` routes above, and CORS for the Vite dev origin.
+2. **Frontend shell** — `dashboard/` Vite+TS scaffold, tokens/theme (light/dark),
+   Zustand, router, Toasts, **Firebase login** (Google + email/pw) + `/api/me`.
 3. **Topics & subscriptions** — list/create/(un)subscribe.
 4. **Discovery & approval** — topic sources, candidates, approve/reject, Discover.
 5. **Headlines & browsing** — feed + per-topic items.
@@ -99,11 +124,12 @@ phase.
 Each is independently shippable; trader-style discipline (small modules, tokens,
 tests for pure logic, snackbars on actions).
 
-## Open questions
+## Decisions (resolved)
 
-1. **Auth depth:** is the email-only local login acceptable for now (harden
-   later), or do you want a shared passcode even locally?
-2. **Frontend location:** a `dashboard/` (or `web/`) folder in this repo
-   (Vite, not containerized — like trader), with the Python API in docker later?
-3. **Prod serving:** Vite dev locally is enough for now; static-serve via
+1. **Auth → Firebase** (Google + email/password), verified per request by
+   `firebase-admin`, user auto-provisioned. Creds provided by you.
+2. **Frontend → `dashboard/`** folder in this repo (Vite + TS, not containerized).
+3. **Styling → custom CSS tokens** (no MUI; MUI was fine but custom gives control
+   + trader consistency).
+4. **Prod serving (deferred):** Vite dev locally is enough now; static-serve via
    uvicorn (og's `static_server.py` pattern) only when we deploy.
