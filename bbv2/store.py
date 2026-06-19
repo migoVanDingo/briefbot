@@ -254,6 +254,30 @@ class Store:
             ).fetchall()
         return self.conn.execute("SELECT * FROM sources ORDER BY name").fetchall()
 
+    def list_candidates(self, topic_slug: str | None = None) -> list[sqlite3.Row]:
+        if topic_slug:
+            return self.conn.execute(
+                """SELECT s.* FROM sources s
+                   JOIN topic_sources ts ON ts.source_id = s.id
+                   JOIN topics t ON t.id = ts.topic_id
+                   WHERE t.slug = ? AND s.status = 'candidate'
+                   ORDER BY s.created_at""",
+                (topic_slug,),
+            ).fetchall()
+        return self.conn.execute(
+            "SELECT * FROM sources WHERE status = 'candidate' ORDER BY created_at"
+        ).fetchall()
+
+    def set_source_status(self, source_id: int, status: str) -> None:
+        self.conn.execute(
+            "UPDATE sources SET status = ? WHERE id = ?", (status, source_id)
+        )
+        self.conn.commit()
+
+    def source_urls(self) -> set[str]:
+        rows = self.conn.execute("SELECT url FROM sources").fetchall()
+        return {r["url"] for r in rows}
+
     # ---- items ----
     def upsert_item(self, item: dict[str, Any]) -> bool:
         """Insert an item; returns True if newly inserted, False if a duplicate."""

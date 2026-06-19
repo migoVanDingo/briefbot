@@ -35,3 +35,7 @@ def http_timeout() -> int:
         return int(os.getenv("BBV2_HTTP_TIMEOUT", "20"))
     except ValueError:
         return 20
+
+
+def brave_api_key() -> str | None:
+    return os.getenv("BRAVESEARCH_API_KEY") or None

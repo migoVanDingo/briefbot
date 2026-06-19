@@ -37,6 +37,11 @@ python -m bbv2 source add --topic crypto --type site --url <site-url> --name "Si
 python -m bbv2 collect [--topic crypto]
 python -m bbv2 items --topic crypto --since 24h --limit 20
 
+# Source discovery (0004) — Brave web search → candidate feeds → human approval
+python -m bbv2 discover --topic crypto [--per-query 8] [--max 20]
+python -m bbv2 source candidates --topic crypto
+python -m bbv2 source approve <id>   |   python -m bbv2 source reject <id>
+
 # Consumer API (0003)
 python -m bbv2 token create --label trader --topics crypto,markets,geopolitics
 python -m bbv2 token list
@@ -55,10 +60,12 @@ bbv2/
   config.py      env/paths (BBV2_*)
   util.py        copied from og briefbot (verbatim)
   normalize.py   copied from og briefbot
-  discover.py    copied from og briefbot (site → feed URLs)
+  discover.py    site → feed URLs (adapted from og: stricter feed detection)
   fetch.py       RSS fetch w/ conditional GET (trimmed from og; HN/arXiv deferred)
+  brave.py       Brave Web Search client (source discovery)
+  discovery.py   topic → search → resolve feeds → candidate sources
   score.py       slim recency × source-weight (bbv2-specific)
-  store.py       bbv2 SQLite schema + queries (own DB) + api_tokens
+  store.py       bbv2 SQLite schema + queries (own DB) + api_tokens, candidates
   collect.py     pipeline wiring
   api.py         FastAPI consumer API (token-auth read: /health /topics /items)
   cli.py         `python -m bbv2 …`

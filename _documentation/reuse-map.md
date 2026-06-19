@@ -15,7 +15,7 @@ dashboard, launchd cron.
 | `util.py` | **copy as-is** | time/json/dir helpers |
 | `fetch.py` | **copy** | feed/site fetching with ETag/Last-Modified |
 | `normalize.py` | **copy** | item normalization |
-| `discover.py` | **copy** | RSS/Atom autodiscovery from a site URL — reused *inside* agent discovery to resolve proposals → feed URLs |
+| `discover.py` | **copy + adapt** | RSS/Atom autodiscovery from a site URL; reused inside agent discovery. Adapted for precision: require a feed MIME type on `rel=alternate`, and require a feed-like response on path probes |
 | `store.py` | **copy + adapt** | keep items/feed_cache/discovered_feeds; **add** users, topics, sources, topic_sources, subscriptions, item_topics, api_tokens |
 | `score.py` | **copy + adapt** | ranking; revisit weights per topic |
 | `config.py` | **adapt** | env/config; sources move from `sources.yaml` → DB (topics/sources tables) |

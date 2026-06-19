@@ -82,6 +82,43 @@ def cmd_source_list(args: argparse.Namespace) -> None:
     store.close()
 
 
+def cmd_discover(args: argparse.Namespace) -> None:
+    from .brave import DiscoveryError
+    from .discovery import discover_sources
+
+    store = _store()
+    try:
+        stats = discover_sources(
+            store, args.topic, per_query=args.per_query, max_candidates=args.max
+        )
+    except DiscoveryError as exc:
+        raise SystemExit(str(exc))
+    print(json.dumps(stats, indent=2))
+    print("\nReview with: bbv2 source candidates --topic " + args.topic)
+    store.close()
+
+
+def cmd_source_candidates(args: argparse.Namespace) -> None:
+    store = _store()
+    for s in store.list_candidates(args.topic):
+        print(f"id={s['id']:<4} {s['name'][:40]:40} {s['url']}")
+    store.close()
+
+
+def cmd_source_approve(args: argparse.Namespace) -> None:
+    store = _store()
+    store.set_source_status(args.id, "active")
+    print(f"approved source id={args.id} → active")
+    store.close()
+
+
+def cmd_source_reject(args: argparse.Namespace) -> None:
+    store = _store()
+    store.set_source_status(args.id, "rejected")
+    print(f"rejected source id={args.id}")
+    store.close()
+
+
 def cmd_collect(args: argparse.Namespace) -> None:
     store = _store()
     stats = collect(store, topic_slug=args.topic)
@@ -165,6 +202,21 @@ def build_parser() -> argparse.ArgumentParser:
     p_sl = source_sub.add_parser("list")
     p_sl.add_argument("--topic")
     p_sl.set_defaults(func=cmd_source_list)
+    p_sc = source_sub.add_parser("candidates")
+    p_sc.add_argument("--topic")
+    p_sc.set_defaults(func=cmd_source_candidates)
+    p_sap = source_sub.add_parser("approve")
+    p_sap.add_argument("id", type=int)
+    p_sap.set_defaults(func=cmd_source_approve)
+    p_srj = source_sub.add_parser("reject")
+    p_srj.add_argument("id", type=int)
+    p_srj.set_defaults(func=cmd_source_reject)
+
+    p_discover = sub.add_parser("discover")
+    p_discover.add_argument("--topic", required=True)
+    p_discover.add_argument("--per-query", type=int, default=8, dest="per_query")
+    p_discover.add_argument("--max", type=int, default=20)
+    p_discover.set_defaults(func=cmd_discover)
 
     p_collect = sub.add_parser("collect")
     p_collect.add_argument("--topic")

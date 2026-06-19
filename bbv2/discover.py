@@ -4,7 +4,9 @@ Fetch a webpage and parse `<link rel="alternate">` tags (plus common feed-path
 probes) to discover RSS/Atom feed URLs. Results are cached by the store to avoid
 rediscovery on every run.
 
-Copied verbatim from the original briefbot (`discover.py`).
+Adapted from the original briefbot (`discover.py`): autodiscovery now *requires*
+a feed MIME type on `rel="alternate"` links (per the RSS autodiscovery spec), so
+typeless hreflang/locale alternates aren't mistaken for feeds.
 """
 
 from __future__ import annotations
@@ -42,7 +44,9 @@ def discover_feeds_from_html(html: str, base_url: str) -> list[str]:
         mime_type = (link.get("type") or "").split(";")[0].strip().lower()
         if not href:
             continue
-        if mime_type and mime_type not in FEED_MIME_TYPES:
+        # Require a feed MIME type — typeless alternates are hreflang/locale
+        # links, not feeds.
+        if mime_type not in FEED_MIME_TYPES:
             continue
         absolute = urljoin(base_url, href)
         if absolute not in feeds:
@@ -51,14 +55,13 @@ def discover_feeds_from_html(html: str, base_url: str) -> list[str]:
 
 
 def _looks_like_feed(content_type: str, body: str, url: str) -> bool:
+    # Require the *response* to look like a feed; a feed-ish URL path alone is
+    # not enough (e.g. an HTML page served at "/feed").
     ctype = (content_type or "").lower()
     if any(t in ctype for t in ("rss+xml", "atom+xml", "xml", "rdf+xml")):
         return True
     text = (body or "").lower()
-    if "<rss" in text or "<feed" in text or "<rdf:rdf" in text:
-        return True
-    path = urlparse(url).path.lower()
-    return any(token in path for token in ("/feed", "rss", "atom", ".xml"))
+    return "<rss" in text or "<feed" in text or "<rdf:rdf" in text
 
 
 def _candidate_feed_urls(site_url: str, soup: "BeautifulSoup") -> list[str]:
