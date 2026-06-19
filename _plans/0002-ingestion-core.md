@@ -1,8 +1,13 @@
 # 0002 — Ingestion Core
 
-**Status:** Proposed (awaiting review)
+**Status:** ✅ Implemented (2026-06-19) — RSS + site; HN/arXiv deferred
 **Date:** 2026-06-19
 **Phase:** Build · **Depends on:** [0001 design](./0001-bbv2-design.md)
+
+> **Done.** Verified live: a BBC World RSS collect ingested 40 items; a second
+> run added 0 (dedupe). 8 offline tests pass. Source types implemented: `rss` +
+> `site` (CLI-restricted); `hn`/`arxiv` normalizers exist but their fetchers are
+> deferred to a later phase.
 
 ## Goal
 
@@ -106,19 +111,19 @@ collect; nightly LLM brief comes in a later phase.
 
 ## Tasks
 
-- [ ] **1** Scaffold the Python project (venv, `requirements.txt` subset,
+- [x] **1** Scaffold the Python project (venv, `requirements.txt` subset,
       `.env.example`, package skeleton, gitignored `data/`).
-- [ ] **2** Copy `util.py` as-is; copy `fetch.py`, `normalize.py`, `discover.py`.
-- [ ] **3** Adapt `store.py` to the bbv2 schema above (own DB path, init +
+- [x] **2** Copy `util.py` as-is; copy `fetch.py`, `normalize.py`, `discover.py`.
+- [x] **3** Adapt `store.py` to the bbv2 schema above (own DB path, init +
       migrations, item upsert/dedupe, `item_topics` mapping, topic/source CRUD).
-- [ ] **4** Slim `score.py` (recency × source weight; refine later).
-- [ ] **5** `collect` pipeline wiring the above.
-- [ ] **6** `cli.py` / `__main__.py`: init, topic add, source add (+ site→feed
+- [x] **4** Slim `score.py` (recency × source weight; refine later).
+- [x] **5** `collect` pipeline wiring the above.
+- [x] **6** `cli.py` / `__main__.py`: init, topic add, source add (+ site→feed
       discovery), collect, items.
-- [ ] **7** `scripts/collect.sh` + a documented hourly cron/launchd example.
-- [ ] **8** Tests (pytest): normalize, dedupe, score (pure) + a `collect` smoke
+- [x] **7** `scripts/collect.sh` + a documented hourly cron/launchd example.
+- [x] **8** Tests (pytest): normalize, dedupe, score (pure) + a `collect` smoke
       test against a local fixture feed (no network).
-- [ ] **9** `CLAUDE.md` for bbv2: stack, the og-briefbot guardrails, run commands,
+- [x] **9** `CLAUDE.md` for bbv2: stack, the og-briefbot guardrails, run commands,
       and modularity rules (mirror the trader project's discipline).
 
 ## Done when

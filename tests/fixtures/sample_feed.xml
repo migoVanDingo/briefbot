@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Sample Crypto News</title>
+    <link>https://example.com</link>
+    <description>Fixture feed for tests</description>
+    <item>
+      <title>Bitcoin rallies on ETF news</title>
+      <link>https://example.com/btc-etf?utm_source=rss</link>
+      <description>BTC up.</description>
+      <pubDate>Wed, 18 Jun 2025 12:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <title>Ethereum upgrade ships</title>
+      <link>https://example.com/eth-upgrade</link>
+      <description>ETH news.</description>
+      <pubDate>Wed, 18 Jun 2025 09:00:00 GMT</pubDate>
+    </item>
+  </channel>
+</rss>

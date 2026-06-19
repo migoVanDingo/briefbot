@@ -1,0 +1,9 @@
+# Runtime (pinned to match the original briefbot where copied)
+feedparser==6.0.12
+beautifulsoup4==4.14.3
+requests==2.32.5
+python-dateutil==2.9.0.post0
+python-dotenv==1.2.1
+
+# Dev
+pytest>=8.0

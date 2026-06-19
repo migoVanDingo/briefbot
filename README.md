@@ -10,8 +10,9 @@ Scale: personal — a handful of accounts (me, family). Not a public SaaS.
 
 ## Status
 
-**Planning.** See [`_plans/0001-bbv2-design.md`](./_plans/0001-bbv2-design.md) for
-the design and [`_documentation/`](./_documentation/) for reference docs.
+**Ingestion core working** (plan 0002): seed a topic + sources via CLI and run a
+collect into bbv2's own SQLite. See [`CLAUDE.md`](./CLAUDE.md) for commands and
+[`_plans/`](./_plans/) for design + phases.
 
 ## Relationship to the original briefbot
 
