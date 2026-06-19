@@ -42,10 +42,15 @@ def brave_api_key() -> str | None:
 
 
 def mailgun_config() -> dict[str, str] | None:
-    """Mailgun settings if fully configured, else None (→ use LogNotifier)."""
-    api_key = os.getenv("MAILGUN_API_KEY")
+    """Mailgun settings if fully configured, else None (→ use LogNotifier).
+
+    Auth uses the **sending** API key (MAILGUN_SENDING_API_KEY), matching the
+    mass-platform convention; falls back to MAILGUN_API_KEY. Needs a from-address
+    (MAILGUN_FROM or EMAIL_FROM).
+    """
+    api_key = os.getenv("MAILGUN_SENDING_API_KEY") or os.getenv("MAILGUN_API_KEY")
     domain = os.getenv("MAILGUN_DOMAIN")
-    sender = os.getenv("MAILGUN_FROM")
+    sender = os.getenv("MAILGUN_FROM") or os.getenv("EMAIL_FROM")
     if api_key and domain and sender:
         return {"api_key": api_key, "domain": domain, "from": sender}
     return None

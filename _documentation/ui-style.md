@@ -40,8 +40,46 @@ dismissable, with an optional **action** (e.g. "Undo" on unsubscribe). One small
 toast system, driven by a store (cf. the trader app's `Toasts` component as a
 reference implementation — reimplement here in bbv2's style).
 
+## Concrete tokens (v1, proposed)
+
+og briefbot uses MUI → rounded/pill-shaped everywhere. bbv2 will **not** use MUI;
+it uses its own CSS tokens (the trader approach) for full control. **Light and
+dark use different accents**, not just inverted neutrals.
+
+**Radius (restrained — no pills):** `--radius-sm: 4px`, `--radius: 6px`,
+`--radius-lg: 8px`. Cards/containers/inputs/buttons use 6–8px. The only round
+elements are avatars and the theme toggle. Never pill-shaped buttons or chips
+(chips ≤ 4px).
+
+**Spacing scale:** 4 / 8 / 12 / 16 / 24 / 32. **Motion:** 120–160ms;
+honor `prefers-reduced-motion`.
+
+**Dark theme**
+```
+--bg #0f1115  --surface #171a21  --border #262b36
+--text #e6e9ef --dim #9aa3b2
+--accent #7c5cff (violet)  --accent-2 #22d3ee (cyan)
+--pos #34d399  --neg #fb7185
+```
+**Light theme** (distinct accents, warmer)
+```
+--bg #f6f8fb  --surface #ffffff  --border #e3e7ee
+--text #1a1f2b --dim #5b6472
+--accent #0ea5a4 (teal)  --accent-2 #f97316 (orange)
+--pos #059669  --neg #e11d48
+```
+
+Tokens live in one source (a `theme.ts` + injected CSS vars, like trader). These
+are a starting point — tune when building.
+
+## Snackbar spec (v1)
+
+Bottom-right stack; one toast per action. Variants `info | success | error` with
+a left accent border (`--accent` / `--pos` / `--neg`). Auto-dismiss ~5s,
+dismissable, optional **action** ("Undo" on unsubscribe/reject). Driven by a
+small toasts store; reimplement trader's `Toasts` in bbv2's style.
+
 ## Scope note
 
-This guides Phase 5 (dashboard). It does **not** change og briefbot. When we build
-the dashboard, this doc becomes the visual spec; refine it then with concrete
-tokens (hex values, type scale).
+This is the visual spec for the dashboard (plan 0006). It does **not** change og
+briefbot.
