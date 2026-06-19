@@ -20,8 +20,8 @@ ingestion core** (backend, single profile; no API/discovery/multi-user/UI yet).
 ## Stack
 
 Python 3 · SQLite (WAL) · feedparser · beautifulsoup4 · requests ·
-python-dateutil · python-dotenv. (FastAPI / Anthropic / Brave / Vite arrive in
-later phases.)
+python-dateutil · python-dotenv · **FastAPI + uvicorn** (consumer API).
+(Anthropic / Brave / Vite arrive in later phases.)
 
 ## Commands
 
@@ -36,6 +36,12 @@ python -m bbv2 source add --topic crypto --type rss --url <feed-url> --name "Sou
 python -m bbv2 source add --topic crypto --type site --url <site-url> --name "Site"
 python -m bbv2 collect [--topic crypto]
 python -m bbv2 items --topic crypto --since 24h --limit 20
+
+# Consumer API (0003)
+python -m bbv2 token create --label trader --topics crypto,markets,geopolitics
+python -m bbv2 token list
+python -m bbv2 serve --host 127.0.0.1 --port 8080
+#   GET /health · GET /topics · GET /items?topic=&since=&limit=  (Bearer token)
 
 pytest        # offline tests (no network)
 ```
@@ -52,8 +58,9 @@ bbv2/
   discover.py    copied from og briefbot (site → feed URLs)
   fetch.py       RSS fetch w/ conditional GET (trimmed from og; HN/arXiv deferred)
   score.py       slim recency × source-weight (bbv2-specific)
-  store.py       bbv2 SQLite schema + queries (own DB)
+  store.py       bbv2 SQLite schema + queries (own DB) + api_tokens
   collect.py     pipeline wiring
+  api.py         FastAPI consumer API (token-auth read: /health /topics /items)
   cli.py         `python -m bbv2 …`
 scripts/collect.sh
 tests/           pytest (network-free; uses tests/fixtures/sample_feed.xml)

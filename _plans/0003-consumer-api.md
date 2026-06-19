@@ -1,8 +1,13 @@
 # 0003 — Consumer API
 
-**Status:** Proposed (awaiting review)
+**Status:** ✅ Implemented (2026-06-19)
 **Date:** 2026-06-19
 **Phase:** Build · **Depends on:** [0002 ingestion core](./0002-ingestion-core.md) ✅
+
+> **Done.** 13 tests pass (incl. 401/403/scope/`since`). Verified live: minted a
+> `trader` token scoped to `world`, served, and curled — `/health` open,
+> `/topics` 401 without a token and scoped with one, `/items?topic=world`
+> returned real items + a `next_since` checkpoint, out-of-scope topic → 403.
 
 ## Goal
 
@@ -99,13 +104,13 @@ scoped token, and a couple items. No network.
 
 ## Tasks
 
-- [ ] **1** Add `fastapi`/`uvicorn`/`httpx` to `requirements.txt`.
-- [ ] **2** Schema + store methods: `api_tokens`, `token_topics`,
+- [x] **1** Add `fastapi`/`uvicorn`/`httpx` to `requirements.txt`.
+- [x] **2** Schema + store methods: `api_tokens`, `token_topics`,
       `create_token`, `token_topic_slugs`, `items_for_consumer(slug, since, limit)`.
-- [ ] **3** `bbv2/api.py`: app, bearer-auth dependency, `/health` `/topics` `/items`.
-- [ ] **4** CLI: `token create`, `token list`, `serve`.
-- [ ] **5** Tests (TestClient) per above.
-- [ ] **6** Docs: update `CLAUDE.md` (serve + token commands) and note the API in
+- [x] **3** `bbv2/api.py`: app, bearer-auth dependency, `/health` `/topics` `/items`.
+- [x] **4** CLI: `token create`, `token list`, `serve`.
+- [x] **5** Tests (TestClient) per above.
+- [x] **6** Docs: update `CLAUDE.md` (serve + token commands) and note the API in
       trader's `0017` as the live integration point.
 
 ## Done when

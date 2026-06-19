@@ -89,6 +89,40 @@ def cmd_collect(args: argparse.Namespace) -> None:
     store.close()
 
 
+def cmd_token_create(args: argparse.Namespace) -> None:
+    store = _store()
+    slugs = [s.strip() for s in (args.topics or "").split(",") if s.strip()]
+    if not slugs:
+        raise SystemExit("provide --topics as a comma-separated list of slugs")
+    known = {t["slug"] for t in store.list_topics()}
+    for slug in slugs:
+        if slug not in known:
+            print(f"warning: topic '{slug}' doesn't exist yet (token still scoped to it)")
+    token = store.create_token(args.label, slugs)
+    print(f"token for '{args.label}' (scope: {', '.join(slugs)}):\n{token}")
+    print("Store it now — it isn't shown again.")
+    store.close()
+
+
+def cmd_token_list(_: argparse.Namespace) -> None:
+    store = _store()
+    for t in store.list_tokens():
+        masked = t["token"][:6] + "…"
+        print(f"{t['label']:16} {masked:8} [{', '.join(t['topics'])}]  {t['created_at']}")
+    store.close()
+
+
+def cmd_serve(args: argparse.Namespace) -> None:
+    import uvicorn
+
+    from .api import create_app
+
+    # check_same_thread=False: API reads on a threadpool over one connection (WAL).
+    store = Store(config.db_path(), check_same_thread=False)
+    app = create_app(store)
+    uvicorn.run(app, host=args.host, port=args.port)
+
+
 def cmd_items(args: argparse.Namespace) -> None:
     store = _store()
     rows = store.items_for_topic(
@@ -141,6 +175,19 @@ def build_parser() -> argparse.ArgumentParser:
     p_items.add_argument("--since")
     p_items.add_argument("--limit", type=int, default=20)
     p_items.set_defaults(func=cmd_items)
+
+    p_token = sub.add_parser("token")
+    token_sub = p_token.add_subparsers(dest="token_cmd", required=True)
+    p_tc = token_sub.add_parser("create")
+    p_tc.add_argument("--label", required=True)
+    p_tc.add_argument("--topics", required=True, help="comma-separated topic slugs")
+    p_tc.set_defaults(func=cmd_token_create)
+    token_sub.add_parser("list").set_defaults(func=cmd_token_list)
+
+    p_serve = sub.add_parser("serve")
+    p_serve.add_argument("--host", default="127.0.0.1")
+    p_serve.add_argument("--port", type=int, default=8080)
+    p_serve.set_defaults(func=cmd_serve)
 
     return parser
 
