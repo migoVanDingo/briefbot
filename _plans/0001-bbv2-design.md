@@ -34,8 +34,9 @@ Match the original so copied code drops in cleanly:
 - Python 3 + **FastAPI** + **uvicorn**
 - **SQLite** (WAL) to start
 - `feedparser`, `beautifulsoup4`, `requests`, `pydantic`, `PyYAML`, `RapidFuzz`
-- **Anthropic** for LLM (summaries, discovery reasoning, structured tagging)
-- A web-search backend for discovery (decision below)
+- **Anthropic** for LLM (summaries, discovery reasoning)
+- **Brave Search API** for agent source discovery
+- **Email** notifications per user (reuse the original's mailgun integration)
 - Vite dashboard later (reuse the original's dashboard scaffolding)
 - Cron via `cron`/launchd on the always-on home server
 
@@ -52,6 +53,9 @@ subscriptions(user_id, topic_id)
 items(item_id, dedupe_key, url, title, body, source_id, published_at, …)  global, deduped
 item_topics(item_id, topic_id)        which topic(s) surfaced an item
 api_tokens(token, user_id)            service accounts (e.g. trader)
+user_settings(user_id, email_enabled, brief_cadence, headline_digest, …)
+favorites(user_id, item_id, collection)   saved items, organized into folders
+likes(user_id, item_id)
 ```
 
 **Visibility rule:** a user sees an item iff there's an `item_topics` row for a
@@ -73,13 +77,38 @@ topic → same underlying items. Items are stored once regardless.
 *Decision needed:* web-search backend — Anthropic tool-use web search vs. a
 dedicated API (Brave/SerpAPI/Tavily). Affects cost + quality.
 
-## Ingestion (cron)
+## Ingestion & cadence (two-tier)
 
 Reuse the original's `collect` pipeline (fetch → normalize → dedupe → score →
 upsert), extended to **map each item to its source's topic(s)** via `item_topics`.
-Run nightly (and/or more often) on the server over the union of `active` sources
-that have at least one subscriber. Briefs/digests per user come later, composed
-from the user's subscribed topics.
+Runs on the server over the union of `active` sources with ≥1 subscriber.
+
+**Decouple cheap collection from expensive synthesis:**
+
+- **Collect** (cheap, frequent — start **hourly**, configurable): fetch/dedupe/
+  store + refresh the dynamic **Headlines** feed. No LLM. Feeds are polled with
+  conditional GETs (ETag/Last-Modified), so most hourly polls are near-no-ops and
+  polite. Hourly also gives `trader` good news timestamp granularity.
+- **Daily brief** (expensive, nightly): the LLM-synthesized brief, as in og
+  briefbot. This is the only place we spend LLM tokens per run.
+
+**Headlines** = most-recent high-`score` items across a user's subscribed topics,
+recomputed each collect — a live section to complement the static daily brief.
+
+## Notifications (per user)
+
+Each user gets emails at **their own** address (reuse the original's mailgun
+integration; recipient = `users.email`). Controlled by `user_settings`:
+email on/off, brief cadence, optional headline digest. Frequent collection makes
+these settings necessary — a user must be able to turn it down or off.
+
+## Engagement (news-app features, like og briefbot)
+
+bbv2 is a general news app, so it carries the original's user features, scoped per
+user: **like** items, save to **favorites/collections** (folders), and
+**discuss an item with the agent** (reuse og briefbot's `/ask` agent flow).
+**Trading-specific** features/labels/signals do **not** live here — those belong
+to the `trader` project, which only *consumes* bbv2 data.
 
 ## Consumer API (for trader and other apps)
 
@@ -97,19 +126,25 @@ bbv2.
 ## Build order (phases → own plans 0002+)
 
 1. **Ingestion core** — topics/sources/items schema + copied `collect` pipeline +
-   `item_topics` mapping + CLI. Single profile; seed sources by hand.
+   `item_topics` mapping + hourly collect + CLI. Single profile; seed sources by hand.
 2. **Consumer API** — token auth + `/topics` + `/items` so trader can read early.
-3. **Agent source discovery** — topic → web-search → candidate sources → approval.
-4. **Multi-user** — users/subscriptions/visibility scoping + service accounts.
-5. **Dashboard** — topic management, source approval, browsing (reuse original UI).
-6. **Briefs/LLM** — per-user daily brief + summaries (reuse `executive`/`brief`).
+3. **Agent source discovery** — topic → Brave search → candidate sources → approval.
+4. **Multi-user + settings** — users/subscriptions/visibility scoping, service
+   accounts, `user_settings`, and **per-user email notifications**.
+5. **Dashboard** — Headlines feed, topic management, source approval, browsing
+   (reuse original UI).
+6. **Briefs/LLM** — per-user nightly brief + summaries (reuse `executive`/`brief`).
+7. **Engagement** — like, favorites/collections, discuss-with-agent.
 
 This order lets **trader consume crypto/markets/geopolitics items early** (after
-phases 1–2) while discovery, multi-user, and UI land afterward.
+phases 1–2) while discovery, multi-user, UI, and engagement land afterward.
 
-## Open questions
+## Decisions (resolved)
 
-1. Web-search backend for discovery (Anthropic tool-use vs. Brave/Tavily/SerpAPI)?
-2. Ingestion cadence (nightly like briefbot, or more frequent for markets news)?
-3. Does bbv2 do structured sentiment/event tagging, or does trader own that?
-   (Leaning: trader owns trading features; bbv2 may offer generic tags later.)
+1. **Discovery web search → Brave Search API** (new key).
+2. **Cadence → two-tier:** hourly (configurable) lightweight collect feeding a
+   dynamic **Headlines** feed; nightly LLM **daily brief**. Per-user notification
+   settings (frequency / off) required because of the frequent collect.
+3. **Scope → bbv2 stays a general news app** (incl. like / favorites / discuss-
+   with-agent). **Trading-specific** features, labels, and signals live in the
+   `trader` project, which only consumes bbv2 data.

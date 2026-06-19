@@ -26,8 +26,9 @@ dashboard, launchd cron.
 | `brief.py`, `executive.py`, `export.py` | **copy + adapt (later)** | per-user daily briefs/digests (phase 6) |
 | `opportunity.py`, `resolve.py`, `article.py` | **copy + adapt (later)** | article fetch/extract + opportunity scoring |
 | `watchlist.py` | **maybe repurpose** | keyword watchlist → could back per-user keyword alerts |
-| `dashboard/` (FastAPI + Vite) | **copy scaffolding (later)** | new UI for topic mgmt + source approval |
-| `nightly_briefbot.sh`, `scripts/*launchd*` | **adapt** | scheduling on the home server (cron/launchd) |
+| `dashboard/` (FastAPI + Vite) | **copy scaffolding (later)** | new UI for topic mgmt + source approval + Headlines; also home of the engagement features (like / favorites / discuss-with-agent via the `/ask` flow) |
+| email/mailgun notification (in nightly flow) | **copy + adapt** | send to **each user's** address, not just one; gated by `user_settings` |
+| `nightly_briefbot.sh`, `scripts/*launchd*` | **adapt** | two-tier scheduling on the server: hourly collect + nightly brief |
 
 ## New in bbv2 (no original to copy)
 
