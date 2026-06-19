@@ -39,6 +39,8 @@ dashboard, launchd cron.
 - **Service accounts** — non-human accounts that subscribe to topics and pull
   via the API.
 
-## Hard rule
+## Hard rules
 
-Copying is one-directional: **original → bbv2**. Never edit the original project.
+- Copying is one-directional: **original → bbv2**. Never edit the original project.
+- **bbv2 uses its own database.** Never open, read, or connect to og briefbot's
+  DB. We copy *code* and adapt it; data and runtime stay fully separate.

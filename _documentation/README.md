@@ -5,6 +5,7 @@ Living docs for bbv2 (the multi-user, topic-driven news platform). Start here.
 | Doc | What's inside |
 |-----|---------------|
 | [reuse-map.md](./reuse-map.md) | What to copy/adapt from the original briefbot vs. build new. |
+| [ui-style.md](./ui-style.md) | Dashboard design direction — distinct, lively styling + snackbars (Phase 5). |
 | _(architecture.md)_ | The big picture — added once the design (plan 0001) is approved and building starts. |
 
 Related:
