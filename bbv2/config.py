@@ -64,6 +64,34 @@ def admin_emails() -> set[str]:
     return {e.strip().lower() for e in raw.split(",") if e.strip()}
 
 
+def moderation_fail_closed() -> bool:
+    """If the LLM moderation call fails, deny by default (safer). Set
+    `MODERATION_FAIL_OPEN=true` to allow-on-error instead."""
+    return os.getenv("MODERATION_FAIL_OPEN", "false").strip().lower() not in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _int_env(name: str, default: int) -> int:
+    try:
+        return int(os.getenv(name, str(default)))
+    except ValueError:
+        return default
+
+
+def ratelimit_topic_create() -> tuple[int, float]:
+    """(limit, window_seconds) for topic creation per user."""
+    return _int_env("RL_TOPIC_CREATE_PER_HOUR", 5), 3600.0
+
+
+def ratelimit_provision() -> tuple[int, float]:
+    """(limit, window_seconds) for topic provisioning per user."""
+    return _int_env("RL_PROVISION_PER_HOUR", 10), 3600.0
+
+
 def mailgun_config() -> dict[str, str] | None:
     """Mailgun settings if fully configured, else None (→ use LogNotifier).
 

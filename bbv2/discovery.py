@@ -14,6 +14,7 @@ import requests
 
 from .brave import DiscoveryError, brave_search
 from .config import http_timeout
+from .denylist import is_blocked_domain
 from .discover import discover_site_feeds
 from .store import Store
 
@@ -85,6 +86,8 @@ def discover_sources(
                 break
             homepage = _homepage(result.get("url") or "")
             if not homepage or homepage in seen_homepages:
+                continue
+            if is_blocked_domain(homepage):  # never add sketchy domains as sources
                 continue
             seen_homepages.add(homepage)
             stats["homepages"] += 1
