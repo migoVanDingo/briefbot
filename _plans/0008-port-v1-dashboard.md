@@ -163,16 +163,25 @@ plain paragraphs by prompt). Live Haiku call is **user-invoked** (not auto-run).
 **Done:** `/headlines` shows a real generated brief (title + summary + trending +
 sources) once a topic's brief is generated.
 
-## Phase 5 — Favorites + folders
+## Phase 5 — Favorites + folders ✅ (2026-06-19)
 
-- [ ] **5.1** Tables `favorite_folders` + `favorite_links` (per user, prefixed IDs;
-      keep v1's `UNIQUE(folder_id, url)` + auto "favorites" default folder).
-- [ ] **5.2** API: `GET/POST /api/favorites/folders`, `GET/POST/DELETE
-      /api/favorites/items`.
-- [ ] **5.3** `Favorites.tsx`: folder tabs + contents + add/remove; star button
-      reused on Stories/Headlines.
+- [x] **5.1** Tables `favorite_folders` (UNIQUE user+name) + `favorite_links`
+      (UNIQUE folder+url), ULID PKs, **per user**; auto `favorites` default folder.
+      Methods in a focused `store_favorites.py` mixin (FavoriteQueriesMixin).
+- [x] **5.2** API: `GET/POST /api/favorites/folders`,
+      `GET/POST/DELETE /api/favorites/items` (POST without `folder_id` → default;
+      dedup upsert per folder+url; 400/404 validation).
+- [x] **5.3** `Favorites.tsx`: folder tabs (with counts) + create-folder form +
+      items list with remove. **Star (☆)** added to Stories rows and the Headlines
+      brief Sources — saves to the default folder. `api.ts`: `Folder`/`Favorite`
+      types + folder/item methods.
+- [x] **5.4** `pytest` 41 green (favorites roundtrip: default folder, add, dedup,
+      count, create, remove, validation); `tsc && vite build` clean.
 
-**Done when:** a user can favorite a story into a folder and manage folders.
+**Note:** star saves to the default `favorites` folder; choosing a target folder
+at save time (and folder delete/rename) can be a later enhancement.
+
+**Done:** a user can favorite a story into a folder and manage folders.
 
 ## Phase 6 — Chat agent (/chat)
 

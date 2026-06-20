@@ -87,6 +87,16 @@ export function Headlines() {
 }
 
 function BriefCard({ brief }: { brief: Brief }) {
+  const push = useToasts((s) => s.push);
+  const save = async (title: string, url: string | null) => {
+    if (!url) return;
+    try {
+      await api.addFavorite({ title, url });
+      push("Saved to favorites", "success");
+    } catch (e) {
+      push(String(e), "error");
+    }
+  };
   return (
     <section className="brief">
       <div className="brief-head">
@@ -144,6 +154,17 @@ function BriefCard({ brief }: { brief: Brief }) {
                 </a>
                 <div className="feed-meta">
                   <span className="chip">{s.source_name}</span>
+                  <span className="vote">
+                    <button
+                      className="vote-btn"
+                      onClick={() => save(s.title, s.url)}
+                      disabled={!s.url}
+                      aria-label="Save to favorites"
+                      title="Save to favorites"
+                    >
+                      ☆
+                    </button>
+                  </span>
                 </div>
               </li>
             ))}

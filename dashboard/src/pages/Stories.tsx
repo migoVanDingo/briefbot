@@ -44,6 +44,16 @@ export function Stories() {
     load();
   };
 
+  const save = async (s: Story) => {
+    if (!s.url) return;
+    try {
+      await api.addFavorite({ title: s.title, url: s.url, item_id: s.item_id });
+      push("Saved to favorites", "success");
+    } catch (e) {
+      push(String(e), "error");
+    }
+  };
+
   const vote = async (s: Story, v: number) => {
     const next = s.feedback_vote === v ? 0 : v; // click the active vote to clear it
     try {
@@ -118,6 +128,15 @@ export function Stories() {
                   {timeAgo(s.published_at ?? s.fetched_at)}
                 </span>
                 <span className="vote">
+                  <button
+                    className="vote-btn"
+                    onClick={() => save(s)}
+                    disabled={!s.url}
+                    aria-label="Save to favorites"
+                    title="Save to favorites"
+                  >
+                    ☆
+                  </button>
                   <button
                     className={`vote-btn${s.feedback_vote === 1 ? " on" : ""}`}
                     onClick={() => vote(s, 1)}

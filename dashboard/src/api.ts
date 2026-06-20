@@ -87,6 +87,19 @@ export interface TopicTab {
   name: string;
 }
 
+export interface Folder {
+  id: string;
+  name: string;
+  count: number;
+}
+
+export interface Favorite {
+  id: string;
+  item_id: string | null;
+  title: string;
+  url: string;
+}
+
 export interface Settings {
   email_enabled: boolean;
   digest_limit: number;
@@ -163,5 +176,30 @@ export const api = {
   generateBrief: (slug: string) =>
     req<{ ok: boolean; title: string }>(`/api/topics/${slug}/brief`, {
       method: "POST",
+    }),
+  favoriteFolders: () =>
+    req<{ folders: Folder[] }>("/api/favorites/folders").then((d) => d.folders),
+  createFolder: (name: string) =>
+    req<{ id: string; name: string }>("/api/favorites/folders", {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    }),
+  favoriteItems: (folderId: string) =>
+    req<{ folder: { id: string; name: string }; items: Favorite[] }>(
+      `/api/favorites/items?folder_id=${encodeURIComponent(folderId)}`,
+    ),
+  addFavorite: (fav: {
+    title: string;
+    url: string;
+    item_id?: string | null;
+    folder_id?: string;
+  }) =>
+    req<{ id: string; folder_id: string }>("/api/favorites/items", {
+      method: "POST",
+      body: JSON.stringify(fav),
+    }),
+  removeFavorite: (id: string) =>
+    req(`/api/favorites/items?favorite_id=${encodeURIComponent(id)}`, {
+      method: "DELETE",
     }),
 };

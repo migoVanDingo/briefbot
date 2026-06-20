@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from .store_dashboard import DashboardQueriesMixin
+from .store_favorites import FavoriteQueriesMixin
 from .util import ensure_dir, json_dumps, utc_now_iso
 
 
@@ -134,13 +135,32 @@ CREATE TABLE IF NOT EXISTS briefs (
     UNIQUE(topic_id, date)
 );
 
+CREATE TABLE IF NOT EXISTS favorite_folders (
+    id TEXT NOT NULL PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE(user_id, name)
+);
+
+CREATE TABLE IF NOT EXISTS favorite_links (
+    id TEXT NOT NULL PRIMARY KEY,
+    folder_id TEXT NOT NULL,
+    user_id INTEGER NOT NULL,
+    item_id TEXT,
+    title TEXT NOT NULL,
+    url TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE(folder_id, url)
+);
+
 CREATE INDEX IF NOT EXISTS idx_items_published ON items(published_at);
 CREATE INDEX IF NOT EXISTS idx_items_fetched ON items(fetched_at);
 CREATE INDEX IF NOT EXISTS idx_item_topics_topic ON item_topics(topic_id);
 """
 
 
-class Store(DashboardQueriesMixin):
+class Store(DashboardQueriesMixin, FavoriteQueriesMixin):
     def __init__(self, db_path: str | Path, check_same_thread: bool = True) -> None:
         path = str(db_path)
         if path != ":memory:":

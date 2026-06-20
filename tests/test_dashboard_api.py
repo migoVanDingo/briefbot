@@ -218,3 +218,49 @@ def test_briefs_endpoint_returns_subscribed_briefs():
     assert data["briefs"][0]["sources"][0]["title"] == "a"
     assert data["briefs"][0]["trending"][0]["label"] == "bitcoin etf"
     assert [t["slug"] for t in data["topics"]] == ["crypto"]
+
+
+def test_favorites_folders_items_roundtrip():
+    store = Store(":memory:", check_same_thread=False)
+    c = _client(store)
+    c.get("/api/me", headers=AUTH)
+
+    # default folder auto-created on first read
+    folders = c.get("/api/favorites/folders", headers=AUTH).json()["folders"]
+    assert [f["name"] for f in folders] == ["favorites"]
+    default_id = folders[0]["id"]
+
+    # add a favorite (no folder_id → default)
+    r = c.post(
+        "/api/favorites/items",
+        json={"title": "T", "url": "https://e/x", "item_id": "ITM1"},
+        headers=AUTH,
+    )
+    assert r.status_code == 200
+    fav_id = r.json()["id"]
+
+    listed = c.get(f"/api/favorites/items?folder_id={default_id}", headers=AUTH).json()
+    assert [i["title"] for i in listed["items"]] == ["T"]
+    assert listed["folder"]["name"] == "favorites"
+
+    # dedup per folder+url (same url upserts in place)
+    c.post(
+        "/api/favorites/items",
+        json={"title": "T2", "url": "https://e/x"},
+        headers=AUTH,
+    )
+    again = c.get(f"/api/favorites/items?folder_id={default_id}", headers=AUTH).json()["items"]
+    assert len(again) == 1 and again[0]["title"] == "T2"
+    assert c.get("/api/favorites/folders", headers=AUTH).json()["folders"][0]["count"] == 1
+
+    # create a named folder
+    nf = c.post("/api/favorites/folders", json={"name": "Reading"}, headers=AUTH).json()
+    assert nf["name"] == "Reading"
+
+    # remove the favorite
+    assert c.delete(f"/api/favorites/items?favorite_id={fav_id}", headers=AUTH).status_code == 200
+    assert c.get(f"/api/favorites/items?folder_id={default_id}", headers=AUTH).json()["items"] == []
+
+    # validation
+    assert c.post("/api/favorites/items", json={"title": "x"}, headers=AUTH).status_code == 400
+    assert c.delete("/api/favorites/items?favorite_id=nope", headers=AUTH).status_code == 404
