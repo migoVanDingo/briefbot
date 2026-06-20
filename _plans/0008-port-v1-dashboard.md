@@ -105,19 +105,26 @@ works unchanged at `/admin/topics`, light accent is blue.
 **Done:** new items carry `ITM…` ULID PKs, dedupe still works, tests pass. Existing
 rows keep their legacy hash IDs unless the DB is wiped.
 
-## Phase 3 — Stories (DB browser): backend + page
+## Phase 3 — Stories (DB browser): backend + page ✅ (2026-06-19)
 
-- [ ] **3.1** Store queries (adapt v1's, scope to subscribed topics): list sources,
-      list clusters, list tags, paginated story query (search/date/source/cluster/
-      tags/sort, newest-first default).
-- [ ] **3.2** `dashboard_api.py` (Firebase): `POST /api/stories` (query),
-      `GET /api/stories/sources|clusters|tags`. Feedback: `POST /api/stories/feedback`
-      (+ a `story_feedback` table, per user).
-- [ ] **3.3** `Stories.tsx`: filter bar + results list (title, source chip, time,
-      summary, vote + star). Wire `api.ts` methods.
+- [x] **3.1** Store (`store.py`, scoped to subscriptions): `story_sources`,
+      `query_stories` (search/source/date/sort, **newest-first default**, joins the
+      user's vote), `set_story_feedback`. New `story_feedback` table (per user;
+      added via `IF NOT EXISTS` so existing DBs upgrade with no migration).
+- [x] **3.2** `dashboard_api.py` (Firebase): `POST /api/stories` (query),
+      `GET /api/stories/sources`, `POST /api/stories/feedback` (vote ∈ -1/0/1).
+- [x] **3.3** `Stories.tsx`: filter bar (search + source select + sort toggle) +
+      results (title, summary, source chip, time, ▲/▼ vote). `api.ts`: `Story` type
+      + `storySources`/`queryStories`/`setFeedback`. CSS: `select`, `.story-summary`,
+      `.vote-btn`.
+- [x] **3.4** `pytest` 34 green (stories query/search/sort/feedback + bad-vote 400);
+      `tsc && vite build` clean.
 
-**Done when:** a subscribed user can browse/filter their stories newest-first and
-vote.
+**Deferred** (depend on later phases): **cluster** + **tag** filters → Phase 4
+(clusters/tags don't exist yet); the **star→favorite** affordance → Phase 5
+(favorites). Note left in code via the filter set.
+
+**Done:** a subscribed user can browse/filter their stories newest-first and vote.
 
 ## Phase 4 — Clustering + Brief engine + Headlines page
 

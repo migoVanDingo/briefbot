@@ -45,6 +45,19 @@ export interface Item {
   score: number;
 }
 
+export interface Story extends Item {
+  feedback_vote: number | null;
+}
+
+export interface StoryFilters {
+  search?: string;
+  source?: string;
+  from?: string;
+  to?: string;
+  order?: "asc" | "desc";
+  limit?: number;
+}
+
 export interface Settings {
   email_enabled: boolean;
   digest_limit: number;
@@ -105,4 +118,16 @@ export const api = {
   approve: (id: number) =>
     req(`/api/sources/${id}/approve`, { method: "POST" }),
   reject: (id: number) => req(`/api/sources/${id}/reject`, { method: "POST" }),
+  storySources: () =>
+    req<{ sources: string[] }>("/api/stories/sources").then((d) => d.sources),
+  queryStories: (filters: StoryFilters = {}) =>
+    req<{ items: Story[] }>("/api/stories", {
+      method: "POST",
+      body: JSON.stringify(filters),
+    }).then((d) => d.items),
+  setFeedback: (item_id: string, vote: number) =>
+    req("/api/stories/feedback", {
+      method: "POST",
+      body: JSON.stringify({ item_id, vote }),
+    }),
 };

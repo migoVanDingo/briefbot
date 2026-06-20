@@ -162,6 +162,43 @@ def add_dashboard_routes(app: FastAPI, store: Store, verifier: Verifier) -> None
         )
         return {"items": [_item_dict(r) for r in rows]}
 
+    @router.get("/stories/sources")
+    def story_sources(user: dict = Depends(current_user)) -> dict[str, Any]:
+        return {"sources": store.story_sources(user["id"])}
+
+    @router.post("/stories")
+    def query_stories(
+        body: dict = Body(default={}), user: dict = Depends(current_user)
+    ) -> dict[str, Any]:
+        limit = int(body.get("limit") or 30)
+        rows = store.query_stories(
+            user["id"],
+            search=(body.get("search") or "").strip() or None,
+            source_name=(body.get("source") or "").strip() or None,
+            from_iso=(body.get("from") or "").strip() or None,
+            to_iso=(body.get("to") or "").strip() or None,
+            order=body.get("order") or "desc",
+            limit=max(1, min(limit, MAX_LIMIT)),
+        )
+        return {
+            "items": [
+                {**_item_dict(r), "feedback_vote": r["feedback_vote"]} for r in rows
+            ]
+        }
+
+    @router.post("/stories/feedback")
+    def story_feedback(
+        body: dict = Body(...), user: dict = Depends(current_user)
+    ) -> dict[str, Any]:
+        item_id = (body.get("item_id") or "").strip()
+        if not item_id:
+            raise HTTPException(status_code=400, detail="item_id required")
+        vote = int(body.get("vote") or 0)
+        if vote not in (-1, 0, 1):
+            raise HTTPException(status_code=400, detail="vote must be -1, 0, or 1")
+        store.set_story_feedback(user["id"], item_id, vote)
+        return {"ok": True, "item_id": item_id, "vote": vote}
+
     @router.get("/settings")
     def get_settings(user: dict = Depends(current_user)) -> dict[str, Any]:
         s = store.get_user_settings(user["id"])
