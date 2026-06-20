@@ -60,6 +60,47 @@ def generate_text(
     return text
 
 
+def anthropic_messages(
+    messages: list[dict[str, Any]],
+    *,
+    tools: list[dict[str, Any]] | None = None,
+    system: str | None = None,
+    max_tokens: int = 1500,
+    temperature: float = 0.3,
+    model: str | None = None,
+    timeout: int = 60,
+) -> dict[str, Any]:
+    """Multi-turn Messages call (with optional tools). Returns the raw content
+    blocks + stop_reason so the agent loop can drive tool use."""
+    api_key = config.anthropic_api_key()
+    if not api_key:
+        raise LLMError("ANTHROPIC_API_KEY not set")
+    payload: dict[str, Any] = {
+        "model": model or config.anthropic_model(),
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+        "messages": messages,
+    }
+    if system:
+        payload["system"] = system
+    if tools:
+        payload["tools"] = tools
+    resp = requests.post(
+        ANTHROPIC_URL,
+        timeout=timeout,
+        headers={
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+        },
+        json=payload,
+    )
+    if resp.status_code >= 400:
+        raise LLMError(f"Anthropic HTTP {resp.status_code}: {resp.text[:300]}")
+    data = resp.json()
+    return {"content": data.get("content") or [], "stop_reason": data.get("stop_reason")}
+
+
 def extract_json(text: str) -> dict[str, Any]:
     """Tolerant JSON extraction from an LLM response (handles ``` fences)."""
     raw = (text or "").strip()

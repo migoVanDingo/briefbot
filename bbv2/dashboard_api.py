@@ -10,6 +10,7 @@ import json
 from typing import Any, Callable
 
 from fastapi import APIRouter, Body, Depends, FastAPI, Header, HTTPException
+from fastapi.responses import StreamingResponse
 
 from .api import _bearer, _item_dict
 from .store import Store
@@ -311,6 +312,88 @@ def add_dashboard_routes(app: FastAPI, store: Store, verifier: Verifier) -> None
         if not store.remove_favorite(user["id"], favorite_id):
             raise HTTPException(status_code=404, detail="unknown favorite")
         return {"ok": True}
+
+    # ---- chat / conversations ----
+    def _conv_dict(row: Any) -> dict[str, Any]:
+        return {
+            "id": row["id"],
+            "title": row["title"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+            "message_count": row["message_count"] if "message_count" in row.keys() else None,
+        }
+
+    @router.post("/conversations")
+    def create_conversation(user: dict = Depends(current_user)) -> dict[str, Any]:
+        cid = store.create_conversation(user["id"])
+        return {"id": cid, "title": None, "message_count": 0}
+
+    @router.get("/conversations")
+    def list_conversations(user: dict = Depends(current_user)) -> dict[str, Any]:
+        return {
+            "conversations": [_conv_dict(r) for r in store.list_conversations(user["id"])]
+        }
+
+    def _conv_or_404(user_id: int, cid: str):
+        conv = store.get_conversation(user_id, cid)
+        if not conv:
+            raise HTTPException(status_code=404, detail="unknown conversation")
+        return conv
+
+    @router.get("/conversations/{cid}")
+    def get_conversation(cid: str, user: dict = Depends(current_user)) -> dict[str, Any]:
+        conv = _conv_or_404(user["id"], cid)
+        messages = [
+            {
+                "id": m["id"],
+                "role": m["role"],
+                "content": m["content"],
+                "tool_calls": json.loads(m["tool_calls_json"]) if m["tool_calls_json"] else [],
+                "created_at": m["created_at"],
+            }
+            for m in store.get_messages(cid)
+        ]
+        return {
+            "id": conv["id"],
+            "title": conv["title"],
+            "created_at": conv["created_at"],
+            "updated_at": conv["updated_at"],
+            "messages": messages,
+        }
+
+    @router.patch("/conversations/{cid}")
+    def rename_conversation(
+        cid: str, body: dict = Body(...), user: dict = Depends(current_user)
+    ) -> dict[str, Any]:
+        _conv_or_404(user["id"], cid)
+        title = (body.get("title") or "").strip()
+        if not title:
+            raise HTTPException(status_code=400, detail="title required")
+        store.set_conversation_title(user["id"], cid, title[:80])
+        return {"ok": True, "title": title[:80]}
+
+    @router.delete("/conversations/{cid}")
+    def delete_conversation(cid: str, user: dict = Depends(current_user)) -> dict[str, Any]:
+        if not store.delete_conversation(user["id"], cid):
+            raise HTTPException(status_code=404, detail="unknown conversation")
+        return {"ok": True}
+
+    @router.post("/conversations/{cid}/messages")
+    def post_message(
+        cid: str, body: dict = Body(...), user: dict = Depends(current_user)
+    ) -> StreamingResponse:
+        from .agent import run_chat_turn
+
+        _conv_or_404(user["id"], cid)
+        text = (body.get("content") or "").strip()
+        if not text:
+            raise HTTPException(status_code=400, detail="content required")
+
+        def gen():
+            for ev in run_chat_turn(store, user["id"], cid, text):
+                yield f"data: {json.dumps(ev)}\n\n"
+
+        return StreamingResponse(gen(), media_type="text/event-stream")
 
     @router.get("/settings")
     def get_settings(user: dict = Depends(current_user)) -> dict[str, Any]:

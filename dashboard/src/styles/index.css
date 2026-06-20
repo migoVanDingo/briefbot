@@ -442,6 +442,107 @@ select:focus {
   margin-top: 22px;
 }
 
+/* ---- chat ---- */
+.chat {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 16px;
+}
+.chat-side {
+  border-right: 1px solid var(--border);
+  padding-right: 12px;
+}
+.chat-new {
+  width: 100%;
+  margin-bottom: 12px;
+}
+.convo-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.convo-item {
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--dim);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.convo-item:hover {
+  background: var(--surface2);
+  color: var(--text);
+}
+.convo-item.active {
+  background: var(--surface2);
+  color: var(--text);
+}
+.chat-main {
+  display: flex;
+  flex-direction: column;
+  min-height: 64vh;
+}
+.thread {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+}
+.msg {
+  max-width: 80%;
+  padding: 10px 13px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+}
+.msg.user {
+  align-self: flex-end;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.msg.assistant {
+  align-self: flex-start;
+  background: var(--surface);
+}
+.msg-body {
+  white-space: pre-wrap;
+  line-height: 1.55;
+  font-size: 14px;
+}
+.tool-chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 7px;
+}
+.tool-chip {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border-radius: var(--radius-sm);
+  padding: 2px 7px;
+}
+.chat-input {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+.chat-input input {
+  flex: 1;
+}
+
 /* ---- feed ---- */
 .feed {
   list-style: none;
@@ -607,5 +708,14 @@ select:focus {
   }
   .row-form {
     flex-direction: column;
+  }
+  .chat {
+    grid-template-columns: 1fr;
+  }
+  .chat-side {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    padding-right: 0;
+    padding-bottom: 12px;
   }
 }

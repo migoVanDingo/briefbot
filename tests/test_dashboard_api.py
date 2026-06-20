@@ -264,3 +264,29 @@ def test_favorites_folders_items_roundtrip():
     # validation
     assert c.post("/api/favorites/items", json={"title": "x"}, headers=AUTH).status_code == 400
     assert c.delete("/api/favorites/items?favorite_id=nope", headers=AUTH).status_code == 404
+
+
+def test_conversations_crud():
+    store = Store(":memory:", check_same_thread=False)
+    c = _client(store)
+    c.get("/api/me", headers=AUTH)
+
+    cid = c.post("/api/conversations", headers=AUTH).json()["id"]
+    assert cid.startswith("CON")
+    assert [x["id"] for x in c.get("/api/conversations", headers=AUTH).json()["conversations"]] == [cid]
+
+    got = c.get(f"/api/conversations/{cid}", headers=AUTH).json()
+    assert got["messages"] == [] and got["title"] is None
+
+    assert c.patch(f"/api/conversations/{cid}", json={"title": "Renamed"}, headers=AUTH).status_code == 200
+    assert c.get(f"/api/conversations/{cid}", headers=AUTH).json()["title"] == "Renamed"
+
+    assert c.delete(f"/api/conversations/{cid}", headers=AUTH).status_code == 200
+    assert c.get(f"/api/conversations/{cid}", headers=AUTH).status_code == 404
+
+    # unknown conversation paths (message post 404s before any model call)
+    assert c.get("/api/conversations/nope", headers=AUTH).status_code == 404
+    assert (
+        c.post("/api/conversations/nope/messages", json={"content": "hi"}, headers=AUTH).status_code
+        == 404
+    )

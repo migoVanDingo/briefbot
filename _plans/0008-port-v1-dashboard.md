@@ -1,6 +1,7 @@
 # 0008 — Port v1's dashboard into bbv2 (+ relocate Topics admin)
 
-**Status:** 📋 Planned (2026-06-19)
+**Status:** ✅ Phases 1–6 implemented (2026-06-19); Phase 7 (`/topics` user flow)
+deferred to its own plan
 **Date:** 2026-06-19
 **Phase:** Build · **Depends on:** [0007 dashboard API](./0007-dashboard-api.md)
 
@@ -183,21 +184,31 @@ at save time (and folder delete/rename) can be a later enhancement.
 
 **Done:** a user can favorite a story into a folder and manage folders.
 
-## Phase 6 — Chat agent (/chat)
+## Phase 6 — Chat agent (/chat) ✅ (2026-06-19)
 
-- [ ] **6.1** Tables `conversations` + `conversation_messages` (per user, prefixed
-      IDs).
-- [ ] **6.2** Port v1's agent loop + tools → bbv2, **Haiku**, scoped to the user:
-      `search_items`, `get_trending_topics`, `get_trend_clusters`,
-      `get_related_stories`, `summarize_article`, favorites tools
-      (create/add/list/remove folder+favorite), `rename_conversation`.
-- [ ] **6.3** API: `GET/POST /api/conversations`,
+- [x] **6.1** Tables `conversations` + `conversation_messages` (per user, ULID
+      PKs, per-conversation `seq`). `store_chat.py` mixin (ChatQueriesMixin).
+- [x] **6.2** `bbv2/agent.py` — tool-use loop (**Haiku**, max 8 iters), scoped to
+      the user, 8 tools: `search_stories`, `get_trending`, `summarize_article`
+      (fetch + summarize), `list_folders`, `create_folder`, `add_favorite`,
+      `list_favorites`, `remove_favorite`. `llm.anthropic_messages` (tools). Model
+      call / title / summarizer all **injectable** → offline-tested.
+- [x] **6.3** API: `GET/POST /api/conversations`,
       `GET/PATCH/DELETE /api/conversations/{id}`, **SSE**
-      `POST /api/conversations/{id}/messages` (token/tool_start/tool_end/title
-      events).
-- [ ] **6.4** `Chat.tsx`: conversation sidebar + streaming thread + tool-call chips.
+      `POST /api/conversations/{id}/messages` (events: token/tool_start/tool_end/
+      title/done/error).
+- [x] **6.4** `Chat.tsx`: conversation sidebar (+ New chat) + thread + tool-call
+      chips; `api.ts` `streamMessage` consumes SSE via `fetch` + `ReadableStream`
+      (so the Firebase bearer header can be set). Chat CSS + responsive.
+- [x] **6.5** `pytest` 46 green (conversation roundtrip, loop text-only + tool path,
+      favorites-via-query, conversations CRUD); `tsc && vite build` clean.
 
-**Done when:** `/chat` streams Haiku answers, runs tools, persists conversations
+**Scoping vs v1:** non-streaming model call per turn (each turn's text emitted as
+one `token` event — same event protocol, robust; true token streaming can layer
+on later). Tool set trimmed to bbv2's data (dropped get_related/get_news/rename).
+Live chat is **user-invoked** (real Haiku); offline tests inject the model.
+
+**Done:** `/chat` runs the tool-use loop, streams events, persists conversations
 per user.
 
 ## Phase 7 — `/topics` user flow (LATER — stub only now)

@@ -100,6 +100,26 @@ export interface Favorite {
   url: string;
 }
 
+export interface ConversationMeta {
+  id: string;
+  title: string | null;
+  message_count: number | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface ToolCall {
+  name: string;
+  summary: string;
+}
+
+export interface ChatMessage {
+  id?: string;
+  role: "user" | "assistant";
+  content: string;
+  tool_calls?: ToolCall[];
+}
+
 export interface Settings {
   email_enabled: boolean;
   digest_limit: number;
@@ -202,4 +222,62 @@ export const api = {
     req(`/api/favorites/items?favorite_id=${encodeURIComponent(id)}`, {
       method: "DELETE",
     }),
+  listConversations: () =>
+    req<{ conversations: ConversationMeta[] }>("/api/conversations").then(
+      (d) => d.conversations,
+    ),
+  createConversation: () =>
+    req<{ id: string }>("/api/conversations", { method: "POST" }),
+  getConversation: (id: string) =>
+    req<{ id: string; title: string | null; messages: ChatMessage[] }>(
+      `/api/conversations/${id}`,
+    ),
+  renameConversation: (id: string, title: string) =>
+    req(`/api/conversations/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ title }),
+    }),
+  deleteConversation: (id: string) =>
+    req(`/api/conversations/${id}`, { method: "DELETE" }),
+  // SSE: stream a chat turn. Calls onEvent for each {type, ...} server event.
+  streamMessage: async (
+    id: string,
+    content: string,
+    onEvent: (ev: Record<string, unknown>) => void,
+  ): Promise<void> => {
+    const user = auth.currentUser;
+    const token = user ? await user.getIdToken() : null;
+    const res = await fetch(`${BASE}/api/conversations/${id}/messages`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ content }),
+    });
+    if (!res.ok || !res.body) {
+      throw new Error(`${res.status} ${await res.text().catch(() => "")}`.trim());
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let idx: number;
+      while ((idx = buf.indexOf("\n\n")) >= 0) {
+        const chunk = buf.slice(0, idx);
+        buf = buf.slice(idx + 2);
+        const line = chunk.split("\n").find((l) => l.startsWith("data:"));
+        if (line) {
+          try {
+            onEvent(JSON.parse(line.slice(5).trim()));
+          } catch {
+            /* ignore malformed event */
+          }
+        }
+      }
+    }
+  },
 };

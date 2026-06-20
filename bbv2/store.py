@@ -12,6 +12,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
+from .store_chat import ChatQueriesMixin
 from .store_dashboard import DashboardQueriesMixin
 from .store_favorites import FavoriteQueriesMixin
 from .util import ensure_dir, json_dumps, utc_now_iso
@@ -154,13 +155,32 @@ CREATE TABLE IF NOT EXISTS favorite_links (
     UNIQUE(folder_id, url)
 );
 
+CREATE TABLE IF NOT EXISTS conversations (
+    id TEXT NOT NULL PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    title TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS conversation_messages (
+    id TEXT NOT NULL PRIMARY KEY,
+    conversation_id TEXT NOT NULL,
+    user_id INTEGER NOT NULL,
+    seq INTEGER NOT NULL,
+    role TEXT NOT NULL,
+    content TEXT NOT NULL,
+    tool_calls_json TEXT,
+    created_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_items_published ON items(published_at);
 CREATE INDEX IF NOT EXISTS idx_items_fetched ON items(fetched_at);
 CREATE INDEX IF NOT EXISTS idx_item_topics_topic ON item_topics(topic_id);
 """
 
 
-class Store(DashboardQueriesMixin, FavoriteQueriesMixin):
+class Store(DashboardQueriesMixin, FavoriteQueriesMixin, ChatQueriesMixin):
     def __init__(self, db_path: str | Path, check_same_thread: bool = True) -> None:
         path = str(db_path)
         if path != ":memory:":

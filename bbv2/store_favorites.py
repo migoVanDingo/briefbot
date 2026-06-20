@@ -53,6 +53,12 @@ class FavoriteQueriesMixin:
             (folder_id, user_id),
         ).fetchone()
 
+    def get_folder_by_name(self, user_id: int, name: str) -> sqlite3.Row | None:
+        return self.conn.execute(
+            "SELECT * FROM favorite_folders WHERE user_id = ? AND name = ?",
+            (user_id, name),
+        ).fetchone()
+
     def add_favorite(
         self,
         user_id: int,
