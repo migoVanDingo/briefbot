@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, type Topic } from "../api";
-import { useToasts } from "../state/toasts";
+import { api, type Topic } from "../../api";
+import { useToasts } from "../../state/toasts";
 
 export function Topics() {
   const push = useToasts((s) => s.push);
@@ -58,7 +58,7 @@ export function Topics() {
 
   return (
     <div className="page">
-      <h1 className="page-title">Topics</h1>
+      <h1 className="page-title">Topics (admin)</h1>
 
       <form onSubmit={create} className="row-form card">
         <input
@@ -83,13 +83,13 @@ export function Topics() {
           {topics.map((t) => (
             <li key={t.slug} className="list-row">
               <div>
-                <Link to={`/topics/${t.slug}`} className="list-title link">
+                <Link to={`/admin/topics/${t.slug}`} className="list-title link">
                   {t.name}
                 </Link>
                 <div className="muted small">{t.slug}</div>
               </div>
               <div className="src-actions">
-                <Link to={`/topics/${t.slug}`} className="btn ghost">
+                <Link to={`/admin/topics/${t.slug}`} className="btn ghost">
                   Sources
                 </Link>
                 <button

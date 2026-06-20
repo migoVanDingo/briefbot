@@ -5,9 +5,11 @@ import { useAuth } from "../state/auth";
 import { ThemeToggle } from "./ThemeToggle";
 
 const NAV = [
-  { to: "/", label: "Headlines", end: true },
+  { to: "/headlines", label: "Headlines", end: false },
+  { to: "/chat", label: "Chat", end: false },
+  { to: "/stories", label: "Stories", end: false },
+  { to: "/favorites", label: "Favorites", end: false },
   { to: "/topics", label: "Topics", end: false },
-  { to: "/settings", label: "Settings", end: false },
 ];
 
 export function AppShell() {
@@ -32,6 +34,18 @@ export function AppShell() {
           ))}
         </nav>
         <div className="topbar-right">
+          <NavLink
+            to="/admin/topics"
+            className={({ isActive }) => `nav-link${isActive ? " active" : ""}`}
+          >
+            Admin
+          </NavLink>
+          <NavLink
+            to="/settings"
+            className={({ isActive }) => `nav-link${isActive ? " active" : ""}`}
+          >
+            Settings
+          </NavLink>
           <span className="who">{profile?.user.name}</span>
           <ThemeToggle />
           <button className="btn ghost" onClick={() => signOut(auth)}>

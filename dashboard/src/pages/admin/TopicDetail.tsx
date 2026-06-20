@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
-import { api, type Source, type Item } from "../api";
-import { useToasts } from "../state/toasts";
-import { timeAgo } from "../lib/format";
-import { LoadingBanner } from "../components/LoadingBanner";
-import { DISCOVER_PHRASES, COLLECT_PHRASES } from "../lib/phrases";
+import { api, type Source, type Item } from "../../api";
+import { useToasts } from "../../state/toasts";
+import { timeAgo } from "../../lib/format";
+import { LoadingBanner } from "../../components/LoadingBanner";
+import { DISCOVER_PHRASES, COLLECT_PHRASES } from "../../lib/phrases";
 
 export function TopicDetail() {
   const { slug = "" } = useParams();
@@ -96,8 +96,8 @@ export function TopicDetail() {
 
   return (
     <div className="page">
-      <Link to="/topics" className="back-link">
-        ← Topics
+      <Link to="/admin/topics" className="back-link">
+        ← Topics (admin)
       </Link>
       <div className="detail-head">
         <h1 className="page-title">{slug}</h1>
