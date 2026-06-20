@@ -117,23 +117,21 @@ arson, violence/terror, hard-drug synthesis, self-harm) are denied.
       `_client` injects an allow-stub generator + an autouse rate-limit reset so
       tests stay offline. `pytest` 66 green.
 
-## Phase 4 — User `/topics` page + pipeline loading UI
+## Phase 4 — User `/topics` page + pipeline loading UI ✅ (2026-06-19)
 
-- [ ] **4.1** `/topics` (replace `TopicsHome`): topic list with Subscribe/
-      Subscribed toggles + a **"Create a topic"** form (slug + name). Denial (422)
-      → toast with the reason.
-- [ ] **4.2** **Pipeline loading UI** — a small, good-looking **stage tracker**:
-      chips **Discover · Approve · Collect** (+ a terminal **Ready**), each in one
-      of three states — **waiting** (dim, hollow), **in-progress** (accent,
-      pulsing/spinner), **complete** (filled + ✓). Driven by the SSE stage events.
-      Keep the **witty phrases** (`LoadingBanner` / `useCyclingPhrase`, client-side
-      timer) **below/beside** the chips. Simple CSS, no deps.
-- [ ] **4.3** Create flow: submit → `createTopic` (422 → toast) → open the
-      provision **SSE** stream → advance the chip pipeline + cycle phrases → on
-      `ready`, reveal **Subscribe**. `error` → toast, topic still listed.
-- [ ] **4.4** `api.ts`: extract a shared `streamSSE(path, body, onEvent)` from the
-      chat reader; add `provisionTopic(slug, onEvent)`. `createTopic` returns
-      `existed` / throws the 422 reason.
+- [x] **4.1** `/topics` (`TopicsHome` rewritten): topic list with Subscribe/
+      Subscribed toggles + a **"Create a topic"** form. 422 denial / 429 → toast.
+- [x] **4.2** `ProvisionPipeline` — pill chips **Discover · Approve · Collect ·
+      Ready**, each **waiting** (dim, `○`) / **in-progress** (accent, pulsing `●`) /
+      **complete** (`✓`), driven by SSE `stage` events. Witty phrases
+      (`LoadingBanner`) cycle below. New pipeline CSS, no deps.
+- [x] **4.3** Create flow: `createTopic` (422/429 → toast) → `provisionTopic` SSE
+      advances the pipeline + cycles phrases → on `ready`, list refreshes and the
+      topic shows **Subscribe**. `error` event → toast.
+- [x] **4.4** `api.ts`: extracted shared `streamSSE(path, body, onEvent)` (chat
+      `streamMessage` + `provisionTopic` both use it); `errMessage` surfaces
+      FastAPI `detail` in toasts; `createTopic` returns `{existed}`. `tsc && vite
+      build` clean.
 
 ## Phase 5 — Cleanup + verify
 

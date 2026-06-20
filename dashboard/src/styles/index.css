@@ -336,6 +336,61 @@ select:focus {
   margin: 0 0 10px;
 }
 
+/* ---- provision pipeline (stage chips) ---- */
+.pipeline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: 14px 0 4px;
+}
+.pipe-step {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.pipe-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--dim);
+  background: var(--surface);
+}
+.pipe-mark {
+  font-size: 11px;
+}
+.pipe-chip.wait {
+  opacity: 0.55;
+}
+.pipe-chip.active {
+  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+.pipe-chip.done {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.pipe-arrow {
+  color: var(--dim);
+}
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
 /* ---- loading banner (witty cycling phrases) ---- */
 .loading-banner {
   display: flex;

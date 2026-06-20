@@ -2,6 +2,18 @@ import { auth } from "./firebase";
 
 const BASE = import.meta.env.VITE_API_BASE || "http://localhost:8080";
 
+// Prefer FastAPI's `{detail: ...}` for a clean toast (e.g. a moderation reason).
+async function errMessage(res: Response): Promise<string> {
+  const body = await res.text().catch(() => "");
+  try {
+    const j = JSON.parse(body);
+    if (j && j.detail) return String(j.detail);
+  } catch {
+    /* not JSON */
+  }
+  return body || `${res.status}`;
+}
+
 async function req<T>(path: string, opts: RequestInit = {}): Promise<T> {
   const user = auth.currentUser;
   const token = user ? await user.getIdToken() : null;
@@ -13,11 +25,49 @@ async function req<T>(path: string, opts: RequestInit = {}): Promise<T> {
       ...(opts.headers || {}),
     },
   });
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`${res.status} ${body}`.trim());
-  }
+  if (!res.ok) throw new Error(await errMessage(res));
   return (res.status === 204 ? null : await res.json()) as T;
+}
+
+// Shared SSE reader: POSTs a body and invokes onEvent for each `data:` event.
+// Used for both chat streaming and topic provisioning.
+async function streamSSE(
+  path: string,
+  body: unknown,
+  onEvent: (ev: Record<string, unknown>) => void,
+): Promise<void> {
+  const user = auth.currentUser;
+  const token = user ? await user.getIdToken() : null;
+  const res = await fetch(`${BASE}${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(body ?? {}),
+  });
+  if (!res.ok || !res.body) throw new Error(await errMessage(res));
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    let idx: number;
+    while ((idx = buf.indexOf("\n\n")) >= 0) {
+      const chunk = buf.slice(0, idx);
+      buf = buf.slice(idx + 2);
+      const line = chunk.split("\n").find((l) => l.startsWith("data:"));
+      if (line) {
+        try {
+          onEvent(JSON.parse(line.slice(5).trim()));
+        } catch {
+          /* ignore malformed event */
+        }
+      }
+    }
+  }
 }
 
 export interface Me {
@@ -155,7 +205,14 @@ export const api = {
   me: () => req<Me>("/api/me"),
   topics: () => req<{ topics: Topic[] }>("/api/topics").then((d) => d.topics),
   createTopic: (body: { slug: string; name?: string; description?: string }) =>
-    req("/api/topics", { method: "POST", body: JSON.stringify(body) }),
+    req<{ ok: boolean; slug: string; existed: boolean }>("/api/topics", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  provisionTopic: (
+    slug: string,
+    onEvent: (ev: Record<string, unknown>) => void,
+  ) => streamSSE(`/api/topics/${slug}/provision`, {}, onEvent),
   subscribe: (slug: string) =>
     req(`/api/topics/${slug}/subscribe`, { method: "POST" }),
   unsubscribe: (slug: string) =>
@@ -240,44 +297,9 @@ export const api = {
   deleteConversation: (id: string) =>
     req(`/api/conversations/${id}`, { method: "DELETE" }),
   // SSE: stream a chat turn. Calls onEvent for each {type, ...} server event.
-  streamMessage: async (
+  streamMessage: (
     id: string,
     content: string,
     onEvent: (ev: Record<string, unknown>) => void,
-  ): Promise<void> => {
-    const user = auth.currentUser;
-    const token = user ? await user.getIdToken() : null;
-    const res = await fetch(`${BASE}/api/conversations/${id}/messages`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      body: JSON.stringify({ content }),
-    });
-    if (!res.ok || !res.body) {
-      throw new Error(`${res.status} ${await res.text().catch(() => "")}`.trim());
-    }
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buf = "";
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buf += decoder.decode(value, { stream: true });
-      let idx: number;
-      while ((idx = buf.indexOf("\n\n")) >= 0) {
-        const chunk = buf.slice(0, idx);
-        buf = buf.slice(idx + 2);
-        const line = chunk.split("\n").find((l) => l.startsWith("data:"));
-        if (line) {
-          try {
-            onEvent(JSON.parse(line.slice(5).trim()));
-          } catch {
-            /* ignore malformed event */
-          }
-        }
-      }
-    }
-  },
+  ) => streamSSE(`/api/conversations/${id}/messages`, { content }, onEvent),
 };
