@@ -126,24 +126,42 @@ rows keep their legacy hash IDs unless the DB is wiped.
 
 **Done:** a subscribed user can browse/filter their stories newest-first and vote.
 
-## Phase 4 — Clustering + Brief engine + Headlines page
+## Phase 4 — Clustering + Brief engine + Headlines page ✅ (2026-06-19)
 
-- [ ] **4.1** Port `cluster.py` (rapidfuzz/Jaccard keyword clustering + trend
-      score) → bbv2; `clusters` + `cluster_memberships` tables (prefixed IDs).
-      Run as part of collect (or a `cluster` step).
-- [ ] **4.2** Port `executive.py` (stage-1 per-article summarize → reduce to a
-      narrative) → bbv2, **Haiku**, with the stage-1 cache table. Add a day-title
-      generator (v1 had a static heading; bbv2 generates one via Haiku).
-- [ ] **4.3** `briefs` table `(topic_id, date, title, summary_md, trending_json,
-      sources_json)`. Generation entrypoint: CLI `bbv2 brief [--topic]` (cron-able);
-      cadence decided later (default: daily, cached).
-- [ ] **4.4** `GET /api/headlines` → compose the signed-in user's brief across
-      subscribed topics (title + summary + trending + contributing sources).
-- [ ] **4.5** `Headlines.tsx`: render brief (markdown), Trending section, Sources
-      list. Tabs across the top = subscribed topics; **only the landing tab shows
-      the summary sections**, per-topic tabs show that topic's stories newest-first.
+**Scoping call (family scale — flagged):** ported the clustering *algorithm* as a
+**pure in-memory module** (no persistent `clusters`/`cluster_memberships`/events/
+purge tables) and built the brief as a **single Haiku reduce call** over the top
+items' feed title+summary (skipped v1's per-article fetch + stage-1 JSON cache).
+Same user-visible output (title + "what's going on" + trending + sources), far
+less machinery. The heavier bits can be added later (see Deferred).
 
-**Done when:** `/headlines` shows a real generated brief + trending + sources.
+- [x] **4.1** `bbv2/cluster.py` — pure `cluster_items(items, now)` (rapidfuzz
+      token-set ratio when available, else Jaccard over title/domain/tag sigs; same
+      trend-score shape, minus category/watch-hit terms bbv2 lacks). `test_cluster.py`.
+- [x] **4.2** `bbv2/llm.py` — Anthropic Haiku client (`generate_text`,
+      `extract_json`), wired to `config` (Haiku default, **not** v1's Opus). The
+      brief's `generate` is **injectable** → offline-testable.
+- [x] **4.3** `bbv2/brief.py` — `build_brief` (cluster → trending; top-N stories →
+      one Haiku call → `{title, summary}`; persist) + `build_all_briefs`. `briefs`
+      table `(id ULID, topic_id, date, title, summary, trending_json, sources_json,
+      model)` UNIQUE(topic_id,date). CLI **`bbv2 brief [--topic] [--date]`**.
+      `test_brief.py` (injected generator, offline).
+- [x] **4.4** `GET /api/briefs` → latest brief per subscribed topic + the tab list;
+      `POST /api/topics/{slug}/brief` generates on demand (admin/test). Store split:
+      dashboard queries moved to `store_dashboard.py` mixin (store.py 655→550, under
+      cap).
+- [x] **4.5** `Headlines.tsx`: **tabs** (Today + subscribed topics). **Today** =
+      brief cards (title + paragraphs + Trending + Sources); per-topic tab = that
+      topic's stories newest-first. "Generate brief" button on the admin topic page.
+      `pytest` 40 green; `tsc && vite build` clean.
+
+**Deferred:** persistent cluster tables (→ unlocks the Stories cluster/tag filters
+from Phase 3); per-article stage-1 deep summaries + cache; brief cadence/cron
+(generation is manual via button/CLI for now); markdown rendering (summary is
+plain paragraphs by prompt). Live Haiku call is **user-invoked** (not auto-run).
+
+**Done:** `/headlines` shows a real generated brief (title + summary + trending +
+sources) once a topic's brief is generated.
 
 ## Phase 5 — Favorites + folders
 

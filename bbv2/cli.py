@@ -260,6 +260,31 @@ def cmd_settings_set(args: argparse.Namespace) -> None:
     store.close()
 
 
+def cmd_brief(args: argparse.Namespace) -> None:
+    from .brief import build_all_briefs, build_brief
+
+    store = _store()
+    if args.topic:
+        b = build_brief(store, args.topic, date=args.date)
+        if b is None:
+            print(f"(no recent items for '{args.topic}')")
+        else:
+            print(
+                json.dumps(
+                    {
+                        "topic": args.topic,
+                        "title": b["title"],
+                        "trending": len(b["trending"]),
+                        "sources": len(b["sources"]),
+                    },
+                    indent=2,
+                )
+            )
+    else:
+        print(json.dumps(build_all_briefs(store, date=args.date), indent=2))
+    store.close()
+
+
 def cmd_digest(args: argparse.Namespace) -> None:
     from .digest import run_digests
     from .notify import default_notifier
@@ -369,6 +394,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_digest = sub.add_parser("digest")
     p_digest.add_argument("--dry-run", action="store_true", dest="dry_run")
     p_digest.set_defaults(func=cmd_digest)
+
+    p_brief = sub.add_parser("brief")
+    p_brief.add_argument("--topic", help="slug; omit to build briefs for all topics")
+    p_brief.add_argument("--date", help="YYYY-MM-DD (default: today, UTC)")
+    p_brief.set_defaults(func=cmd_brief)
 
     return parser
 

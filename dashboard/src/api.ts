@@ -58,6 +58,35 @@ export interface StoryFilters {
   limit?: number;
 }
 
+export interface Trending {
+  label: string;
+  trend_score: number;
+  item_count: number;
+  representative_title: string | null;
+  representative_url: string | null;
+}
+
+export interface BriefSource {
+  title: string;
+  url: string | null;
+  source_name: string;
+}
+
+export interface Brief {
+  topic_slug: string;
+  topic_name: string;
+  date: string;
+  title: string;
+  summary: string;
+  trending: Trending[];
+  sources: BriefSource[];
+}
+
+export interface TopicTab {
+  slug: string;
+  name: string;
+}
+
 export interface Settings {
   email_enabled: boolean;
   digest_limit: number;
@@ -129,5 +158,10 @@ export const api = {
     req("/api/stories/feedback", {
       method: "POST",
       body: JSON.stringify({ item_id, vote }),
+    }),
+  briefs: () => req<{ briefs: Brief[]; topics: TopicTab[] }>("/api/briefs"),
+  generateBrief: (slug: string) =>
+    req<{ ok: boolean; title: string }>(`/api/topics/${slug}/brief`, {
+      method: "POST",
     }),
 };

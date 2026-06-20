@@ -395,6 +395,53 @@ select:focus {
   padding: 7px 12px;
 }
 
+/* ---- tabs ---- */
+.tabs {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 18px;
+}
+.tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--dim);
+  font-weight: 600;
+  font-size: 14px;
+  padding: 9px 12px;
+  cursor: pointer;
+}
+.tab:hover {
+  color: var(--text);
+}
+.tab.active {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+
+/* ---- brief ---- */
+.brief {
+  margin-bottom: 28px;
+}
+.brief-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.brief-title {
+  font-size: 24px;
+  margin: 8px 0 12px;
+}
+.brief-summary p {
+  line-height: 1.6;
+  margin: 0 0 12px;
+}
+.brief-section {
+  margin-top: 22px;
+}
+
 /* ---- feed ---- */
 .feed {
   list-style: none;

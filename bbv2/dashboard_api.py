@@ -6,6 +6,7 @@ injectable so the routes are testable offline.
 
 from __future__ import annotations
 
+import json
 from typing import Any, Callable
 
 from fastapi import APIRouter, Body, Depends, FastAPI, Header, HTTPException
@@ -15,6 +16,18 @@ from .store import Store
 
 Verifier = Callable[[str], dict[str, Any]]
 MAX_LIMIT = 200
+
+
+def _serialize_brief(topic_row: Any, brief_row: Any) -> dict[str, Any]:
+    return {
+        "topic_slug": topic_row["slug"],
+        "topic_name": topic_row["name"],
+        "date": brief_row["date"],
+        "title": brief_row["title"],
+        "summary": brief_row["summary"],
+        "trending": json.loads(brief_row["trending_json"] or "[]"),
+        "sources": json.loads(brief_row["sources_json"] or "[]"),
+    }
 
 
 def _make_current_user(store: Store, verifier: Verifier):
@@ -198,6 +211,34 @@ def add_dashboard_routes(app: FastAPI, store: Store, verifier: Verifier) -> None
             raise HTTPException(status_code=400, detail="vote must be -1, 0, or 1")
         store.set_story_feedback(user["id"], item_id, vote)
         return {"ok": True, "item_id": item_id, "vote": vote}
+
+    @router.get("/briefs")
+    def briefs(user: dict = Depends(current_user)) -> dict[str, Any]:
+        """The landing brief: latest brief per subscribed topic, plus the tab list."""
+        subs = store.user_subscriptions(user["id"])
+        out = []
+        for t in subs:
+            b = store.latest_brief(int(t["id"]))
+            if b:
+                out.append(_serialize_brief(t, b))
+        return {
+            "briefs": out,
+            "topics": [{"slug": t["slug"], "name": t["name"]} for t in subs],
+        }
+
+    @router.post("/topics/{slug}/brief")
+    def generate_brief(slug: str, user: dict = Depends(current_user)) -> dict[str, Any]:
+        """Generate (Haiku) + persist a topic's brief now. Admin/test affordance."""
+        from .brief import build_brief
+
+        _topic_or_404(slug)
+        try:
+            b = build_brief(store, slug)
+        except Exception as exc:  # surface LLM/key errors to the caller
+            raise HTTPException(status_code=400, detail=str(exc))
+        if b is None:
+            raise HTTPException(status_code=400, detail="no recent items to summarize")
+        return {"ok": True, "title": b["title"]}
 
     @router.get("/settings")
     def get_settings(user: dict = Depends(current_user)) -> dict[str, Any]:

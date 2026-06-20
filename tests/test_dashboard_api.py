@@ -189,3 +189,32 @@ def test_stories_query_search_sort_and_feedback():
 
     # sources list
     assert c.get("/api/stories/sources", headers=AUTH).json()["sources"] == ["S"]
+
+
+def test_briefs_endpoint_returns_subscribed_briefs():
+    store = Store(":memory:", check_same_thread=False)
+    c = _client(store)
+    c.get("/api/me", headers=AUTH)
+    tid = store.add_topic("crypto", "Crypto")
+
+    # not subscribed → empty
+    assert c.get("/api/briefs", headers=AUTH).json()["briefs"] == []
+    c.post("/api/topics/crypto/subscribe", headers=AUTH)
+
+    store.upsert_brief(
+        {
+            "id": "BRF1",
+            "topic_id": tid,
+            "date": "2025-01-08",
+            "title": "Crypto heats up",
+            "summary": "S",
+            "trending": [{"label": "bitcoin etf", "trend_score": 9}],
+            "sources": [{"title": "a", "url": "u", "source_name": "X"}],
+            "model": "m",
+        }
+    )
+    data = c.get("/api/briefs", headers=AUTH).json()
+    assert [b["title"] for b in data["briefs"]] == ["Crypto heats up"]
+    assert data["briefs"][0]["sources"][0]["title"] == "a"
+    assert data["briefs"][0]["trending"][0]["label"] == "bitcoin etf"
+    assert [t["slug"] for t in data["topics"]] == ["crypto"]

@@ -15,6 +15,7 @@ export function TopicDetail() {
   const [items, setItems] = useState<Item[]>([]);
   const [discovering, setDiscovering] = useState(false);
   const [collecting, setCollecting] = useState(false);
+  const [briefing, setBriefing] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -58,6 +59,18 @@ export function TopicDetail() {
       push(String(e), "error");
     } finally {
       setCollecting(false);
+    }
+  };
+
+  const makeBrief = async () => {
+    setBriefing(true);
+    try {
+      const r = await api.generateBrief(slug);
+      push(`Brief ready: ${r.title}`, "success");
+    } catch (e) {
+      push(String(e), "error");
+    } finally {
+      setBriefing(false);
     }
   };
 
@@ -107,6 +120,9 @@ export function TopicDetail() {
           </button>
           <button className="btn primary" onClick={collect} disabled={collecting}>
             {collecting ? "Collecting…" : "Collect now"}
+          </button>
+          <button className="btn" onClick={makeBrief} disabled={briefing}>
+            {briefing ? "Briefing…" : "Generate brief"}
           </button>
         </div>
       </div>
