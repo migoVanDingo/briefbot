@@ -118,7 +118,8 @@ tests/           pytest (network-free; uses tests/fixtures/sample_feed.xml)
 Shipped: `0002` ingestion core · `0003` consumer API · `0004` Brave discovery ·
 `0005` multi-user + settings + email · `0006/0007` dashboard (design + Firebase
 API) · **`0008` v1-dashboard port** (Headlines/Chat/Stories/Favorites + `/admin/
-topics`, prefixed ULIDs, brief engine, chat agent).
+topics`, prefixed ULIDs, brief engine, chat agent) · **`0009` user topic flow +
+owner-only roles + guardrails**.
 
 ## WHERE WE ARE — pick up here (2026-06-19)
 
@@ -128,21 +129,32 @@ dashboard is ported into bbv2. Run `make dev` (backend :8080 + frontend :5173):
 - **Routes:** `/headlines` (tabbed: *Today* = generated brief — title + summary +
   Trending + Sources; per-topic tabs = stories newest-first), `/chat` (Haiku
   tool-use agent, SSE), `/stories` (search/source/sort + vote + ☆ save),
-  `/favorites` (folders + links), `/topics` (stub — user flow not built yet).
-  Source curation moved to **`/admin/topics`** (Discover/Approve/Collect/Generate
-  brief), unchanged behavior.
+  `/favorites` (folders + links), `/topics` (user flow — see below).
+  Source curation lives at **`/admin/topics`** (Discover/Approve/Collect/Generate
+  brief) — **admin-only** (0009).
+- **`/topics` user flow (0009):** any user creates a topic → it passes **tiered
+  moderation** (slug/name validation → keyword denylist → Haiku classifier;
+  infosec allowed, harmful denied) → **provision** streams a chip pipeline
+  (Discover → Approve → Collect → Ready, SSE, witty phrases) → **Subscribe**.
+  Create + provision are **rate-limited** (per user). Source discovery drops
+  denylisted domains.
+- **Roles (0009):** **owner-only admin** via `ADMIN_EMAILS` (the ONLY way to grant
+  admin — no API/UI/CLI). `require_admin` 403-gates curation routes; the frontend
+  hides `/admin` + guards the route for non-admins.
 - **IDs:** prefixed ULIDs (`ITM…`/`SRC…`/`TOP…`/`CLU…`/`FAV…`/`FLD…`/`CON…`/
   `MSG…`/`BRF…`) via `bbv2/ids.py`. Dedupe still on `dedupe_key`.
 - **Brief:** `bbv2/brief.py` + `cluster.py` + `llm.py` (Haiku). Generate via the
   admin button or CLI `bbv2 brief [--topic]`. Stored in `briefs` table.
-- **New modules:** `ids`, `cluster`, `llm`, `brief`, `agent`, store mixins
-  (`store_dashboard`/`store_favorites`/`store_chat`). 46 pytest pass; build clean.
-- **Live LLM (Haiku) is user-invoked only** (brief generation, chat). Needs
-  `ANTHROPIC_API_KEY`.
+- **Modules:** `ids`, `cluster`, `llm`, `brief`, `agent` (0008); `moderation`,
+  `ratelimit`, `denylist`, `provision` (0009); store mixins
+  (`store_dashboard`/`store_favorites`/`store_chat`). **66 pytest pass; build clean.**
+- **Live LLM (Haiku) is user-invoked only** (brief, chat, topic moderation).
+  Needs `ANTHROPIC_API_KEY`. Moderation **fails closed** (deny on LLM error).
 
-**DB was wiped** (fresh `data/bbv2.db`) when ULIDs landed. To re-seed: log in
-(auto-provisions the user) → `/admin/topics` create a topic → Discover → Approve →
-Collect → Generate brief → see `/headlines`.
+**DB was wiped** (fresh `data/bbv2.db`) when ULIDs landed. To re-seed: set
+`ADMIN_EMAILS=<you>` in `.env`, log in (you provision as admin) → create a topic
+on **`/topics`** (auto discover→approve→collect) *or* curate via `/admin/topics` →
+Generate brief → see `/headlines`.
 
 **Creds:** backend Firebase service-account wired (`FIREBASE_CONFIG`, project
 `briefbot-v2`). Frontend `dashboard/.env` still **needs `VITE_FIREBASE_API_KEY` +
@@ -150,10 +162,6 @@ Collect → Generate brief → see `/headlines`.
 
 ### NEXT (own plans — the rest of the re-scope)
 
-- **`/topics` user flow + roles:** any user creates a topic → auto-discover +
-  **auto-approve** sources → collect → Subscribe (loading UI throughout). Move
-  source curation behind an **admin role**; gate `/admin/*` (regular users can't
-  see it). Add `admin`/`user` roles (config `ADMIN_EMAILS` or CLI).
 - **Settings:** per-user accent **color picker** (light accent is hardcoded blue
   now); plus the existing digest settings.
 - **Logo** to replace the `◆` brand-mark; **article images** on cards (extract

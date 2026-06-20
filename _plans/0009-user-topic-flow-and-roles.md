@@ -1,6 +1,6 @@
 # 0009 — User topic flow, roles, and guardrails
 
-**Status:** 📋 Planned (2026-06-19)
+**Status:** ✅ Implemented (2026-06-19)
 **Date:** 2026-06-19
 **Phase:** Build · **Depends on:** [0008 dashboard port](./0008-port-v1-dashboard.md)
 
@@ -133,14 +133,16 @@ arson, violence/terror, hard-drug synthesis, self-harm) are denied.
       FastAPI `detail` in toasts; `createTopic` returns `{existed}`. `tsc && vite
       build` clean.
 
-## Phase 5 — Cleanup + verify
+## Phase 5 — Cleanup + verify ✅ (2026-06-19)
 
-- [ ] **5.1** Non-admin can't reach `/admin/*` by URL (guard) or API (403).
-      `/admin/topics` keeps full curation (now admin-gated).
-- [ ] **5.2** `pytest` + `tsc && vite build` green. New `.env` keys documented:
-      `ADMIN_EMAILS`, rate-limit knobs, moderation toggle/fail-mode.
-- [ ] **5.3** Update `CLAUDE.md` "WHERE WE ARE" (mark 0009; note `ADMIN_EMAILS`
-      is owner-only and the guardrail tiers).
+- [x] **5.1** Non-admin blocked from `/admin/*` by **API** (`require_admin` 403,
+      tested) and **UI** (`RequireAdmin` guard + hidden link). `/admin/topics`
+      keeps full curation, admin-gated.
+- [x] **5.2** `pytest` **66 green**; `tsc && vite build` clean. `.env.example`
+      documents `ADMIN_EMAILS` (owner-only), `MODERATION_FAIL_OPEN`,
+      `RL_TOPIC_CREATE_PER_HOUR`, `RL_PROVISION_PER_HOUR`.
+- [x] **5.3** `CLAUDE.md` "WHERE WE ARE" updated for 0009 (routes, owner-only
+      admin, guardrail tiers, re-seed via `/topics`).
 
 ## Done when
 
