@@ -4,13 +4,15 @@ Living docs for bbv2 (the multi-user, topic-driven news platform). Start here.
 
 | Doc | What's inside |
 |-----|---------------|
-| [reuse-map.md](./reuse-map.md) | What to copy/adapt from the original briefbot vs. build new. |
-| [ui-style.md](./ui-style.md) | Dashboard design direction — distinct, lively styling + snackbars (Phase 5). |
-| [roadmap.md](./roadmap.md) | Backlog + known refinements (e.g. non-English filtering). |
-| _(architecture.md)_ | The big picture — added once the design (plan 0001) is approved and building starts. |
+| [architecture.md](./architecture.md) | The big picture — layers, modules, data model, request flows, auth/roles. |
+| [reuse-map.md](./reuse-map.md) | What was copied/adapted from the original briefbot vs. built new. |
+| [ui-style.md](./ui-style.md) | Dashboard design direction — distinct, lively styling + snackbars. |
+| [roadmap.md](./roadmap.md) | What's left — backlog, known refinements, and pre-0008 bugs. |
 
 Related:
-- [`../_plans/`](../_plans/) — design + phased build plans (`0001` is the design).
+- [`../_plans/`](../_plans/) — design + phased build plans (`0001` design →
+  `0009` user flow/roles/guardrails).
+- [`../CLAUDE.md`](../CLAUDE.md) — commands + "WHERE WE ARE".
 - Original briefbot (inspiration only, **never modified**):
   `~/Developer/agent/projects/ai-assistant`.
 
