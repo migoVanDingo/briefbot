@@ -7,12 +7,12 @@ database; it never opens the original briefbot's DB.
 
 from __future__ import annotations
 
-import secrets
 import sqlite3
 from pathlib import Path
 from typing import Any
 
 from .store_chat import ChatQueriesMixin
+from .store_consumer import ConsumerTokenMixin
 from .store_dashboard import DashboardQueriesMixin
 from .store_favorites import FavoriteQueriesMixin
 from .util import ensure_dir, json_dumps, utc_now_iso
@@ -67,6 +67,7 @@ CREATE TABLE IF NOT EXISTS items (
 CREATE TABLE IF NOT EXISTS item_topics (
     item_id TEXT NOT NULL,
     topic_id INTEGER NOT NULL,
+    relevant INTEGER,
     PRIMARY KEY (item_id, topic_id)
 );
 
@@ -181,7 +182,9 @@ CREATE INDEX IF NOT EXISTS idx_item_topics_topic ON item_topics(topic_id);
 """
 
 
-class Store(DashboardQueriesMixin, FavoriteQueriesMixin, ChatQueriesMixin):
+class Store(
+    DashboardQueriesMixin, FavoriteQueriesMixin, ChatQueriesMixin, ConsumerTokenMixin
+):
     def __init__(self, db_path: str | Path, check_same_thread: bool = True) -> None:
         path = str(db_path)
         if path != ":memory:":
@@ -191,7 +194,19 @@ class Store(DashboardQueriesMixin, FavoriteQueriesMixin, ChatQueriesMixin):
         self.conn = sqlite3.connect(path, check_same_thread=check_same_thread)
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(SCHEMA_SQL)
+        self._migrate()
         self.conn.commit()
+
+    def _migrate(self) -> None:
+        """Add columns introduced after a DB was first created (idempotent)."""
+        for table, col, decl in (
+            ("item_topics", "relevant", "INTEGER"),
+            ("topics", "keywords_json", "TEXT"),
+        ):
+            try:
+                self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
+            except sqlite3.OperationalError:
+                pass  # column already exists
 
     def close(self) -> None:
         self.conn.close()
@@ -414,6 +429,7 @@ class Store(DashboardQueriesMixin, FavoriteQueriesMixin, ChatQueriesMixin):
             "JOIN item_topics it ON it.item_id = i.item_id",
             "JOIN topics t ON t.id = it.topic_id",
             "WHERE t.slug = ?",
+            "AND COALESCE(it.relevant, 1) = 1",
         ]
         params: list[Any] = [topic_slug]
         if since_iso:
@@ -441,48 +457,6 @@ class Store(DashboardQueriesMixin, FavoriteQueriesMixin, ChatQueriesMixin):
         sql.append("ORDER BY i.fetched_at ASC LIMIT ?")
         params.append(limit)
         return self.conn.execute(" ".join(sql), params).fetchall()
-
-    # ---- API tokens (consumer API) ----
-    def create_token(self, label: str, topic_slugs: list[str]) -> str:
-        token = secrets.token_urlsafe(32)
-        self.conn.execute(
-            "INSERT INTO api_tokens (token, label, created_at) VALUES (?, ?, ?)",
-            (token, label, utc_now_iso()),
-        )
-        for slug in topic_slugs:
-            self.conn.execute(
-                "INSERT OR IGNORE INTO token_topics (token, topic_slug) VALUES (?, ?)",
-                (token, slug),
-            )
-        self.conn.commit()
-        return token
-
-    def get_token(self, token: str) -> sqlite3.Row | None:
-        return self.conn.execute(
-            "SELECT * FROM api_tokens WHERE token = ?", (token,)
-        ).fetchone()
-
-    def token_topic_slugs(self, token: str) -> list[str]:
-        rows = self.conn.execute(
-            "SELECT topic_slug FROM token_topics WHERE token = ? ORDER BY topic_slug",
-            (token,),
-        ).fetchall()
-        return [r["topic_slug"] for r in rows]
-
-    def list_tokens(self) -> list[dict[str, Any]]:
-        out: list[dict[str, Any]] = []
-        for row in self.conn.execute(
-            "SELECT token, label, created_at FROM api_tokens ORDER BY created_at"
-        ).fetchall():
-            out.append(
-                {
-                    "token": row["token"],
-                    "label": row["label"],
-                    "created_at": row["created_at"],
-                    "topics": self.token_topic_slugs(row["token"]),
-                }
-            )
-        return out
 
     # ---- users / subscriptions / settings ----
     def add_user(self, name: str, email: str, role: str = "human") -> int:
@@ -587,6 +561,7 @@ class Store(DashboardQueriesMixin, FavoriteQueriesMixin, ChatQueriesMixin):
             "JOIN item_topics it ON it.item_id = i.item_id",
             "JOIN subscriptions sub ON sub.topic_id = it.topic_id",
             "WHERE sub.user_id = ?",
+            "AND COALESCE(it.relevant, 1) = 1",
         ]
         params: list[Any] = [user_id]
         if since_iso:

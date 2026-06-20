@@ -644,15 +644,21 @@ select:focus {
 }
 
 /* ---- chat ---- */
-.chat {
+.chat-shell {
+  position: fixed;
+  top: var(--topbar-h, 58px);
+  left: 0;
+  right: 0;
+  bottom: 0;
   display: grid;
-  grid-template-columns: 250px 1fr;
-  gap: 22px;
-  min-height: 72vh;
+  grid-template-columns: 280px 1fr;
+  background: var(--bg);
 }
 .chat-side {
   border-right: 1px solid var(--border);
-  padding-right: 12px;
+  padding: 16px 12px;
+  overflow-y: auto;
+  min-height: 0;
 }
 .chat-new {
   width: 100%;
@@ -692,7 +698,8 @@ select:focus {
 .chat-main {
   display: flex;
   flex-direction: column;
-  min-height: 72vh;
+  min-height: 0;
+  padding: 18px 22px;
 }
 .thread {
   flex: 1;
@@ -700,6 +707,7 @@ select:focus {
   flex-direction: column;
   gap: 12px;
   overflow-y: auto;
+  min-height: 0;
 }
 .msg {
   max-width: 74%;
@@ -911,13 +919,13 @@ select:focus {
   .row-form {
     flex-direction: column;
   }
-  .chat {
+  .chat-shell {
     grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr;
   }
   .chat-side {
     border-right: none;
     border-bottom: 1px solid var(--border);
-    padding-right: 0;
-    padding-bottom: 12px;
+    max-height: 28vh;
   }
 }

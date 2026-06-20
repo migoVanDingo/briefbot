@@ -104,6 +104,20 @@ class FavoriteQueriesMixin:
             (folder_id, user_id),
         ).fetchall()
 
+    def search_favorites(
+        self, user_id: int, query: str, limit: int = 50
+    ) -> list[sqlite3.Row]:
+        """Token-AND search across all of a user's saved links (title/url)."""
+        sql = ["SELECT * FROM favorite_links WHERE user_id = ?"]
+        params: list = [user_id]
+        for tok in (query or "").split()[:8]:
+            like = f"%{tok}%"
+            sql.append("AND (title LIKE ? OR url LIKE ?)")
+            params.extend([like, like])
+        sql.append("ORDER BY created_at DESC LIMIT ?")
+        params.append(limit)
+        return self.conn.execute(" ".join(sql), params).fetchall()
+
     def remove_favorite(self, user_id: int, favorite_id: str) -> bool:
         cur = self.conn.execute(
             "DELETE FROM favorite_links WHERE id = ? AND user_id = ?",

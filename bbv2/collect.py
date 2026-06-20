@@ -8,10 +8,9 @@ from typing import Any
 
 import requests
 
-from .config import http_timeout, relevance_enabled, relevance_min_hits
+from .config import http_timeout
 from .discover import discover_site_feeds
 from .fetch import FetchError, fetch_rss_feed
-from .relevance import expand_keywords, is_relevant, keyword_tokens
 from .score import compute_score
 from .store import Store
 
@@ -45,23 +44,7 @@ def collect(
         "new": 0,
         "not_modified": 0,
         "errors": 0,
-        "filtered": 0,
     }
-
-    # Per-topic keyword sets for relevance filtering (lazy-generate missing ones).
-    relevance_on = relevance_enabled()
-    min_hits = relevance_min_hits()
-    kw_by_id: dict[int, set[str]] = {}
-    if relevance_on:
-        for t in store.list_topics():
-            expanded = store.get_topic_keywords(t["slug"])
-            if not expanded:
-                expanded = expand_keywords(t["name"])
-                if expanded:
-                    store.set_topic_keywords(t["slug"], expanded)
-            kw_by_id[int(t["id"])] = keyword_tokens(
-                t["name"], t["description"] or "", expanded
-            )
 
     for row in store.active_sources(topic_slug):
         stats["sources"] += 1
@@ -93,25 +76,8 @@ def collect(
                 continue
             for item in items:
                 item["score"] = compute_score(item, source_weight=row["weight"])
-                # Keep the item only for the topics it's actually relevant to.
-                if relevance_on:
-                    rel_tids = [
-                        tid
-                        for tid in topic_ids
-                        if is_relevant(
-                            item["title"],
-                            item.get("summary"),
-                            kw_by_id.get(tid, set()),
-                            min_hits,
-                        )
-                    ]
-                else:
-                    rel_tids = topic_ids
-                if not rel_tids:
-                    stats["filtered"] += 1
-                    continue
                 item_id, inserted = store.upsert_item(item)
-                for tid in rel_tids:
+                for tid in topic_ids:
                     store.map_item_topic(item_id, tid)
                 stats["items"] += 1
                 if inserted:

@@ -29,10 +29,12 @@ This file holds what's **left** — backlog and known rough edges.
   comment feeds). Consider an LLM ranker/labeler + a feed "health" check (recent,
   real entries) before approving.
 - **Feed-URL dedupe.** Treat trailing-slash variants (`/feed` vs `/feed/`) as one.
-- **Relevance tuning (0010).** The off-topic filter is whole-token keyword match
-  against an LLM-expanded set, so a ticker-only headline ("BTCUSDT: …") with no
-  spelled-out keyword can be dropped. Tune `RELEVANCE_MIN_HITS`, grow the keyword
-  set, or add an LLM tier for borderline items; `RELEVANCE_FILTER=false` disables.
+- **Relevance (0011).** Off-topic stories are dropped by an **LLM quickscan**
+  after collect (`bbv2 quickscan`; runs as a provision stage). Pending items show
+  until reviewed — run quickscan / re-provision to clean an existing topic. At
+  scale, add a cheap pre-filter before the LLM call.
+- **Semantic search.** Stories + Favorites search is token-AND (LIKE). Embeddings
+  would enable true semantic search; pairs with persistent clusters below.
 
 ## Known bugs (pre-0008, low priority — flow changed since)
 
@@ -49,4 +51,6 @@ Multi-user + settings + email (0005), dashboard + Firebase API (0006/0007),
 v1-dashboard port — Headlines/Chat/Stories/Favorites, prefixed ULIDs, brief
 engine, chat agent (0008), user topic flow + owner-only roles + guardrails (0009),
 relevance filter + HTML-stripped blurbs + Title-cased names + Headlines ratings +
-chat layout + Stories thumbs/date filter + input sanitization + MUI icons (0010).
+chat layout + Stories thumbs/date filter + input sanitization + MUI icons (0010);
+LLM relevance quickscan + full-bleed chat + token search + Stories topic filter +
+Favorites search + Topics name/description form + nav reorder (0011).

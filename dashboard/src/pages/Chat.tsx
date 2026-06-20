@@ -125,9 +125,8 @@ export function Chat() {
   };
 
   return (
-    <div className="page wide chat-page">
-      <div className="chat">
-        <aside className="chat-side">
+    <div className="chat-shell">
+      <aside className="chat-side">
           <button className="btn primary chat-new icon-btn-text" onClick={newChat}>
             <AddIcon fontSize="small" />
             New chat
@@ -194,7 +193,6 @@ export function Chat() {
             </button>
           </form>
         </section>
-      </div>
     </div>
   );
 }

@@ -4,6 +4,7 @@ const STEPS = [
   { key: "discovering", label: "Discover" },
   { key: "approving", label: "Approve" },
   { key: "collecting", label: "Collect" },
+  { key: "reviewing", label: "Review" },
   { key: "ready", label: "Ready" },
 ];
 const ORDER = STEPS.map((s) => s.key);

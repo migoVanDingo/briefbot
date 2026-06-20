@@ -39,6 +39,25 @@ class DashboardQueriesMixin:
         )
         self.conn.commit()
 
+    # ---- relevance quickscan (LLM review of item↔topic mappings) ----
+    def pending_relevance(self, topic_slug: str, limit: int = 200) -> list[sqlite3.Row]:
+        """Items mapped to the topic but not yet relevance-reviewed."""
+        return self.conn.execute(
+            """SELECT i.item_id, i.title, i.summary FROM items i
+               JOIN item_topics it ON it.item_id = i.item_id
+               JOIN topics t ON t.id = it.topic_id
+               WHERE t.slug = ? AND it.relevant IS NULL
+               ORDER BY i.fetched_at DESC LIMIT ?""",
+            (topic_slug, limit),
+        ).fetchall()
+
+    def set_item_relevance(self, item_id: str, topic_id: int, relevant: int) -> None:
+        self.conn.execute(
+            "UPDATE item_topics SET relevant = ? WHERE item_id = ? AND topic_id = ?",
+            (relevant, item_id, topic_id),
+        )
+        self.conn.commit()
+
     # ---- provisioning helpers ----
     def approve_all_candidates(self, topic_slug: str) -> int:
         """Auto-approve every candidate source on a topic (candidate→active).
@@ -100,6 +119,7 @@ class DashboardQueriesMixin:
             "JOIN subscriptions sub ON sub.topic_id = it.topic_id",
             "LEFT JOIN story_feedback f ON f.item_id = i.item_id AND f.user_id = ?",
             "WHERE sub.user_id = ?",
+            "AND COALESCE(it.relevant, 1) = 1",
         ]
         params: list[Any] = [user_id, user_id]
         if topic_slug:
@@ -109,9 +129,13 @@ class DashboardQueriesMixin:
             sql.append("AND i.source_name = ?")
             params.append(source_name)
         if search:
-            like = f"%{search}%"
-            sql.append("AND (i.title LIKE ? OR i.summary LIKE ? OR i.source_name LIKE ?)")
-            params.extend([like, like, like])
+            # Token AND: every word must appear (title/summary/source), in any
+            # order — so "Israeli airstrike Sidon" matches "Israeli airstrike near
+            # Sidon …". Fixes the chat agent's search + Stories search.
+            for tok in search.split()[:8]:
+                like = f"%{tok}%"
+                sql.append("AND (i.title LIKE ? OR i.summary LIKE ? OR i.source_name LIKE ?)")
+                params.extend([like, like, like])
         if from_iso:
             sql.append("AND COALESCE(i.published_at, i.fetched_at) >= ?")
             params.append(from_iso)

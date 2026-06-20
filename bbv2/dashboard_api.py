@@ -320,6 +320,23 @@ def add_dashboard_routes(
         fid = store.create_folder(user["id"], name)  # store Title-cases it
         return {"ok": True, "id": fid, "name": titlecase(name)}
 
+    @router.get("/favorites/search")
+    def favorite_search(
+        q: str = "", user: dict = Depends(current_user)
+    ) -> dict[str, Any]:
+        rows = store.search_favorites(user["id"], q)
+        return {
+            "items": [
+                {
+                    "id": r["id"],
+                    "item_id": r["item_id"],
+                    "title": r["title"],
+                    "url": r["url"],
+                }
+                for r in rows
+            ]
+        }
+
     @router.get("/favorites/items")
     def favorite_items(
         folder_id: str = "", user: dict = Depends(current_user)

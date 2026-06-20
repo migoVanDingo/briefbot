@@ -10,9 +10,11 @@ type Order = "desc" | "asc";
 export function Stories() {
   const push = useToasts((s) => s.push);
   const [sources, setSources] = useState<string[]>([]);
+  const [topics, setTopics] = useState<{ slug: string; name: string }[]>([]);
   const [stories, setStories] = useState<Story[] | null>(null);
   const [search, setSearch] = useState("");
   const [source, setSource] = useState("");
+  const [topic, setTopic] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [order, setOrder] = useState<Order>("desc");
@@ -23,6 +25,7 @@ export function Stories() {
       const items = await api.queryStories({
         search: search.trim() || undefined,
         source: source || undefined,
+        topic: topic || undefined,
         from: from ? `${from}T00:00:00` : undefined,
         to: to ? `${to}T23:59:59` : undefined,
         order,
@@ -33,17 +36,21 @@ export function Stories() {
       push(String(e), "error");
       setStories([]);
     }
-  }, [search, source, from, to, order, push]);
+  }, [search, source, topic, from, to, order, push]);
 
   useEffect(() => {
     api.storySources().then(setSources).catch((e) => push(String(e), "error"));
+    api
+      .topics()
+      .then((ts) => setTopics(ts.filter((t) => t.subscribed)))
+      .catch((e) => push(String(e), "error"));
   }, [push]);
 
-  // Source/date/sort changes reload; free-text search applies on submit.
+  // Source/topic/date/sort changes reload; free-text search applies on submit.
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [source, from, to, order]);
+  }, [source, topic, from, to, order]);
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -66,6 +73,14 @@ export function Stories() {
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
+        <select value={topic} onChange={(e) => setTopic(e.target.value)}>
+          <option value="">All topics</option>
+          {topics.map((t) => (
+            <option key={t.slug} value={t.slug}>
+              {t.name}
+            </option>
+          ))}
+        </select>
         <select value={source} onChange={(e) => setSource(e.target.value)}>
           <option value="">All sources</option>
           {sources.map((s) => (

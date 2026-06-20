@@ -285,6 +285,16 @@ def cmd_brief(args: argparse.Namespace) -> None:
     store.close()
 
 
+def cmd_quickscan(args: argparse.Namespace) -> None:
+    from .review import quickscan_topic
+
+    store = _store()
+    slugs = [args.topic] if args.topic else [t["slug"] for t in store.list_topics()]
+    for slug in slugs:
+        print(f"{slug}: {json.dumps(quickscan_topic(store, slug))}")
+    store.close()
+
+
 def cmd_digest(args: argparse.Namespace) -> None:
     from .digest import run_digests
     from .notify import default_notifier
@@ -399,6 +409,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_brief.add_argument("--topic", help="slug; omit to build briefs for all topics")
     p_brief.add_argument("--date", help="YYYY-MM-DD (default: today, UTC)")
     p_brief.set_defaults(func=cmd_brief)
+
+    p_quickscan = sub.add_parser("quickscan")
+    p_quickscan.add_argument("--topic", help="slug; omit to scan all topics")
+    p_quickscan.set_defaults(func=cmd_quickscan)
 
     return parser
 

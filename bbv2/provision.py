@@ -53,9 +53,19 @@ def provision_topic(
         yield {"type": "error", "message": f"collect failed: {exc}"}
         return
 
+    # Final step: LLM quickscan drops off-topic stories the source carried.
+    yield {"type": "stage", "stage": "reviewing"}
+    try:
+        from .review import quickscan_topic
+
+        review = quickscan_topic(store, topic_slug)
+    except Exception:
+        review = {"kept": None, "dropped": None}
+
     yield {
         "type": "stage",
         "stage": "ready",
         "sources": approved,
         "items": int(c.get("new", 0)),
+        "dropped": review.get("dropped"),
     }

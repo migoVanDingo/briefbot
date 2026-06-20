@@ -28,8 +28,9 @@ in Starlette's threadpool over one shared `Store(check_same_thread=False)` (WAL)
 
 - **Network** — `fetch.py` (RSS, conditional GET), `discover.py` (site→feed
   autodiscovery), `brave.py` (web search), `llm.py` (Anthropic Haiku).
-- **Persistence** — `store.py` (schema + core queries) + mixins
-  (`store_dashboard`, `store_favorites`, `store_chat`). One SQLite DB, own to bbv2.
+- **Persistence** — `store.py` (schema + migrations + core queries) + mixins
+  (`store_dashboard`, `store_favorites`, `store_chat`, `store_consumer`). One
+  SQLite DB, own to bbv2. New columns added via idempotent `ALTER` in `_migrate`.
 - **Pure logic** (no I/O, unit-tested) — `normalize.py`, `score.py`, `cluster.py`,
   `moderation.py`, `relevance.py`, `ratelimit.py`, `denylist.py`, `ids.py`,
   `util.py` (incl. `strip_html`, `titlecase`).
@@ -42,7 +43,7 @@ in Starlette's threadpool over one shared `Store(check_same_thread=False)` (WAL)
 ## Data model (one SQLite DB)
 
 `topics`, `sources` (status: candidate/active/rejected), `topic_sources`,
-`items` (+ `dedupe_key` UNIQUE), `item_topics`, `feed_cache`, `discovered_feeds`,
+`items` (+ `dedupe_key` UNIQUE), `item_topics` (+ `relevant`), `feed_cache`, `discovered_feeds`,
 `api_tokens` + `token_topics`, `users` (role), `subscriptions`, `user_settings`,
 `story_feedback`, `briefs`, `favorite_folders` + `favorite_links`,
 `conversations` + `conversation_messages`.
@@ -54,15 +55,18 @@ ULID PK isn't content-derived; `store.upsert_item` returns the canonical id.
 ## Key flows
 
 - **Collect** (`collect.py`): active sources → `fetch_rss_feed` → `normalize`
-  (HTML-stripped title/summary) → `score` → **relevance filter** (`relevance.py`:
-  keep an item for a topic only if it matches that topic's keywords — the name
-  plus an LLM-expanded set in `topics.keywords_json`) → `upsert_item` (dedupe) →
-  `map_item_topic`. Drops off-topic stories that aggregator sources carry.
+  (HTML-stripped title/summary) → `score` → `upsert_item` (dedupe) →
+  `map_item_topic` (with `relevant = NULL`, pending review).
+- **Relevance quickscan** (`review.py` → `relevance.classify_batch`): after
+  collect, batches each topic's **pending** items (~20: id + title + blurb) to
+  Haiku, which decides which are genuinely on-topic; writes `item_topics.relevant`
+  (1/0). Display queries hide `relevant = 0`. Drops the off-topic stories that
+  aggregator sources carry. Run as a provision stage and via `bbv2 quickscan`.
 - **Discover** (`discovery.py`): topic → Brave queries → site homepages
   (skipping `denylist` domains) → `discover_site_feeds` → candidate sources.
 - **Provision** (`provision.py`, user flow): a generator streaming SSE stages
-  `discovering → approving → collecting → ready` (discover → `approve_all_candidates`
-  → collect). Rate-limited.
+  `discovering → approving → collecting → reviewing → ready` (discover →
+  `approve_all_candidates` → collect → relevance quickscan). Rate-limited.
 - **Brief** (`brief.py`): recent items → `cluster_items` (trending) + top stories
   → one Haiku call → `{title, summary}` → `briefs` table. Run via admin button or
   `bbv2 brief`.

@@ -7,11 +7,19 @@ import { LoadingBanner } from "../components/LoadingBanner";
 import { ProvisionPipeline } from "../components/ProvisionPipeline";
 import { DISCOVER_PHRASES } from "../lib/phrases";
 
+function slugify(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40);
+}
+
 export function TopicsHome() {
   const push = useToasts((s) => s.push);
   const [topics, setTopics] = useState<Topic[] | null>(null);
-  const [slug, setSlug] = useState("");
   const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
   const [provisioning, setProvisioning] = useState<string | null>(null);
   const [stage, setStage] = useState<string | null>(null);
 
@@ -46,12 +54,17 @@ export function TopicsHome() {
 
   const create = async (e: React.FormEvent) => {
     e.preventDefault();
-    const s = slug.trim().toLowerCase();
+    const display = name.trim();
+    const s = slugify(display);
     if (!s || provisioning) return;
     try {
-      const res = await api.createTopic({ slug: s, name: name.trim() || s });
-      setSlug("");
+      const res = await api.createTopic({
+        slug: s,
+        name: display,
+        description: description.trim() || undefined,
+      });
       setName("");
+      setDescription("");
       setProvisioning(res.slug);
       setStage(null);
       await api.provisionTopic(res.slug, (ev) => {
@@ -77,17 +90,17 @@ export function TopicsHome() {
 
       <form onSubmit={create} className="row-form card">
         <input
-          placeholder="slug (e.g. hacking)"
-          value={slug}
-          maxLength={40}
-          onChange={(e) => setSlug(e.target.value)}
-          disabled={!!provisioning}
-        />
-        <input
-          placeholder="Display name"
+          placeholder="Display name (e.g. Crypto)"
           value={name}
           maxLength={80}
           onChange={(e) => setName(e.target.value)}
+          disabled={!!provisioning}
+        />
+        <input
+          placeholder="Describe your topic"
+          value={description}
+          maxLength={200}
+          onChange={(e) => setDescription(e.target.value)}
           disabled={!!provisioning}
         />
         <button

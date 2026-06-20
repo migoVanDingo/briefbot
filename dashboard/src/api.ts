@@ -267,6 +267,10 @@ export const api = {
     req<{ folder: { id: string; name: string }; items: Favorite[] }>(
       `/api/favorites/items?folder_id=${encodeURIComponent(folderId)}`,
     ),
+  searchFavorites: (q: string) =>
+    req<{ items: Favorite[] }>(
+      `/api/favorites/search?q=${encodeURIComponent(q)}`,
+    ).then((d) => d.items),
   addFavorite: (fav: {
     title: string;
     url: string;

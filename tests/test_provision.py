@@ -22,7 +22,7 @@ def test_provision_emits_stages_and_auto_approves():
         )
     )
     stages = [e["stage"] for e in events if e["type"] == "stage"]
-    assert stages == ["discovering", "approving", "collecting", "ready"]
+    assert stages == ["discovering", "approving", "collecting", "reviewing", "ready"]
     ready = events[-1]
     assert ready["sources"] == 2 and ready["items"] == 5
     # candidates were flipped to active
