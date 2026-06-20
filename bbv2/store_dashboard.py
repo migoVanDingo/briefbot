@@ -16,6 +16,32 @@ from .util import json_dumps, utc_now_iso
 class DashboardQueriesMixin:
     conn: sqlite3.Connection  # provided by Store
 
+    # ---- provisioning helpers ----
+    def approve_all_candidates(self, topic_slug: str) -> int:
+        """Auto-approve every candidate source on a topic (candidate→active).
+        Returns how many were flipped."""
+        cur = self.conn.execute(
+            """UPDATE sources SET status='active'
+               WHERE status='candidate' AND id IN (
+                 SELECT s.id FROM sources s
+                 JOIN topic_sources ts ON ts.source_id = s.id
+                 JOIN topics t ON t.id = ts.topic_id
+                 WHERE t.slug = ?)""",
+            (topic_slug,),
+        )
+        self.conn.commit()
+        return cur.rowcount
+
+    def topic_has_sources(self, topic_slug: str) -> bool:
+        row = self.conn.execute(
+            """SELECT 1 FROM sources s
+               JOIN topic_sources ts ON ts.source_id = s.id
+               JOIN topics t ON t.id = ts.topic_id
+               WHERE t.slug = ? AND s.status = 'active' LIMIT 1""",
+            (topic_slug,),
+        ).fetchone()
+        return row is not None
+
     # ---- stories (dashboard browser) ----
     def story_sources(self, user_id: int) -> list[str]:
         """Distinct source names across the user's subscribed topics."""

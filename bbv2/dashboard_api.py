@@ -14,6 +14,8 @@ from fastapi.responses import StreamingResponse
 
 from . import config
 from .api import _bearer, _item_dict
+from .moderation import ModerationError, moderate_topic
+from .ratelimit import limiter
 from .store import Store
 
 Verifier = Callable[[str], dict[str, Any]]
@@ -56,7 +58,15 @@ def _make_current_user(store: Store, verifier: Verifier):
     return current_user
 
 
-def add_dashboard_routes(app: FastAPI, store: Store, verifier: Verifier) -> None:
+def add_dashboard_routes(
+    app: FastAPI,
+    store: Store,
+    verifier: Verifier,
+    *,
+    moderate_generate: Any | None = None,
+) -> None:
+    """`moderate_generate` overrides the LLM used by topic moderation (tests
+    inject a stub so creation never hits the network)."""
     current_user = _make_current_user(store, verifier)
     router = APIRouter(prefix="/api")
 
@@ -64,6 +74,16 @@ def add_dashboard_routes(app: FastAPI, store: Store, verifier: Verifier) -> None
         if user.get("role") != "admin":
             raise HTTPException(status_code=403, detail="admin only")
         return user
+
+    def _enforce_rate(action: str, user_id: int, conf: tuple[int, float]) -> None:
+        limit, window = conf
+        ok, retry = limiter.check((action, user_id), limit=limit, window_s=window)
+        if not ok:
+            raise HTTPException(
+                status_code=429,
+                detail="Too many requests — slow down.",
+                headers={"Retry-After": str(int(retry) + 1)},
+            )
 
     def _topic_or_404(slug: str):
         topic = store.get_topic(slug)
@@ -103,11 +123,35 @@ def add_dashboard_routes(app: FastAPI, store: Store, verifier: Verifier) -> None
     def create_topic(
         body: dict = Body(...), user: dict = Depends(current_user)
     ) -> dict[str, Any]:
-        slug = (body.get("slug") or "").strip()
-        if not slug:
-            raise HTTPException(status_code=400, detail="slug required")
-        store.add_topic(slug, body.get("name") or slug, body.get("description") or "")
-        return {"ok": True, "slug": slug}
+        _enforce_rate("create", user["id"], config.ratelimit_topic_create())
+        try:
+            clean = moderate_topic(
+                body.get("slug") or "",
+                body.get("name") or body.get("slug") or "",
+                moderate_generate,
+                fail_closed=config.moderation_fail_closed(),
+            )
+        except ModerationError as exc:
+            raise HTTPException(status_code=422, detail=exc.reason)
+        slug, name = clean["slug"], clean["name"]
+        existed = store.get_topic(slug) is not None
+        store.add_topic(slug, name, body.get("description") or "")
+        return {"ok": True, "slug": slug, "existed": existed}
+
+    @router.post("/topics/{slug}/provision")
+    def provision(slug: str, user: dict = Depends(current_user)) -> StreamingResponse:
+        """User-driven: discover → auto-approve → collect, streamed as SSE stage
+        events. Rate-limited; runs in the threadpool like /chat."""
+        from .provision import provision_topic
+
+        _enforce_rate("provision", user["id"], config.ratelimit_provision())
+        _topic_or_404(slug)
+
+        def gen():
+            for ev in provision_topic(store, slug):
+                yield f"data: {json.dumps(ev)}\n\n"
+
+        return StreamingResponse(gen(), media_type="text/event-stream")
 
     @router.post("/topics/{slug}/subscribe")
     def subscribe(slug: str, user: dict = Depends(current_user)) -> dict[str, Any]:

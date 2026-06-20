@@ -94,29 +94,28 @@ arson, violence/terror, hard-drug synthesis, self-harm) are denied.
 
 **Wiring into the create/provision endpoints lands in Phase 3.** `pytest` 59 green.
 
-## Phase 3 — Provisioning backend (moderated, SSE)
+## Phase 3 — Provisioning backend (moderated, SSE) ✅ (2026-06-19)
 
-- [ ] **3.1** Store: `approve_all_candidates(topic_slug)` (candidate→active,
-      returns count); `topic_has_sources(slug)`.
-- [ ] **3.2** `POST /api/topics` (create) — any authed user, **rate-limited**:
-      `validate_slug` + `sanitize_name` → Tier 1 keyword → Tier 2 classifier. Deny
-      → **422** `{reason}` (topic NOT created). Allow + slug exists → return it
-      (`existed: true`). Else create.
-- [ ] **3.3** `POST /api/topics/{slug}/provision` — any authed user,
-      **rate-limited**, **SSE**, in `bbv2/provision.py`: yields `discovering` →
-      `discover_sources` (with site denylist) → `approving {candidates}` →
-      `approve_all_candidates` → `collecting` → `collect` → `ready {sources,
-      items}` (or `error {message}`). No candidates → still `ready, sources: 0`
-      with a note (don't 500). Pure event sequence → unit-testable with Brave/fetch
-      stubbed.
-- [ ] **3.4** *(Optional, nice)* safe **query-angle expansion**: for an allowed
-      topic, a Haiku step suggests legit search angles (e.g. `hacking` →
-      "reverse engineering", "vulnerability research", "CTF writeups") to seed
-      discovery — improves results and steers away from harmful angles. Injected /
-      skippable; behind the same injection-hardening.
-- [ ] **3.5** Tests: provision emits the stage sequence and wires
-      discover→approve→collect (offline stubs); create denied → 422 (no row);
-      create-existing → `existed`.
+- [x] **3.1** Store (in `store_dashboard.py`, keeping `store.py` under cap):
+      `approve_all_candidates(slug)` (candidate→active, returns count);
+      `topic_has_sources(slug)`.
+- [x] **3.2** `POST /api/topics` — any authed user, **rate-limited**
+      (`config.ratelimit_topic_create()`), runs `moderate_topic` (validate +
+      keyword + Haiku classifier; `moderate_generate` injectable for tests). Deny →
+      **422** generic reason (NOT created); allow + slug exists → `existed: true`.
+- [x] **3.3** `POST /api/topics/{slug}/provision` — any authed user,
+      **rate-limited**, **SSE**, in `bbv2/provision.py`: `discovering` (uses the
+      site denylist from 2.3) → `approving {candidates}` → `collecting` → `ready
+      {sources, items}` / `error`. Discover/collect injectable. Runs in the
+      `StreamingResponse` generator (threadpool), like `/chat`.
+- [~] **3.4** Query-angle expansion **deferred** (optional/nice) — discovery's
+      `build_queries` already produces decent angles; an LLM angle-crafter can slot
+      in later behind the same injection-hardening.
+- [x] **3.5** Tests: `test_provision.py` (stage sequence + auto-approve, unknown
+      topic, discovery-error halt); `test_dashboard_api` (create denied → 422 no
+      row, create-existing → `existed`, create rate-limit → 429, provision 404).
+      `_client` injects an allow-stub generator + an autouse rate-limit reset so
+      tests stay offline. `pytest` 66 green.
 
 ## Phase 4 — User `/topics` page + pipeline loading UI
 

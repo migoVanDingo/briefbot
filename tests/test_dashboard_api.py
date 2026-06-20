@@ -1,6 +1,8 @@
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+import bbv2.ratelimit as _ratelimit
 from bbv2.dashboard_api import add_dashboard_routes
 from bbv2.store import Store
 
@@ -11,10 +13,20 @@ def _fake_verifier(token: str) -> dict:
     raise ValueError("bad token")
 
 
-def _client(store: Store) -> TestClient:
+def _allow_gen(*a, **k):  # default moderation stub → allow (no network)
+    return '{"allowed": true, "category": "ok", "reason": "ok"}'
+
+
+def _client(store: Store, moderate_generate=_allow_gen) -> TestClient:
     app = FastAPI()
-    add_dashboard_routes(app, store, _fake_verifier)
+    add_dashboard_routes(app, store, _fake_verifier, moderate_generate=moderate_generate)
     return TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def _reset_ratelimit():
+    _ratelimit.limiter._hits.clear()
+    yield
 
 
 AUTH = {"Authorization": "Bearer good"}
@@ -78,6 +90,42 @@ def test_admin_routes_require_admin():
     store.set_user_role("me@example.com", "admin")
     assert c.get("/api/me", headers=AUTH).json()["user"]["role"] == "admin"
     assert c.get("/api/topics/crypto/sources", headers=AUTH).status_code == 200
+
+
+def test_create_topic_moderation_denies():
+    store = Store(":memory:", check_same_thread=False)
+    deny = lambda *a, **k: '{"allowed": false, "category": "weapons", "reason": "no"}'
+    c = _client(store, moderate_generate=deny)
+    c.get("/api/me", headers=AUTH)
+    r = c.post("/api/topics", json={"slug": "bombs", "name": "bomb stuff"}, headers=AUTH)
+    assert r.status_code == 422
+    assert c.get("/api/topics", headers=AUTH).json()["topics"] == []  # never created
+
+
+def test_create_topic_existing_returns_existed():
+    store = Store(":memory:", check_same_thread=False)
+    c = _client(store)
+    c.get("/api/me", headers=AUTH)
+    first = c.post("/api/topics", json={"slug": "crypto", "name": "Crypto"}, headers=AUTH)
+    assert first.json()["existed"] is False
+    again = c.post("/api/topics", json={"slug": "crypto", "name": "Crypto"}, headers=AUTH)
+    assert again.json()["existed"] is True
+
+
+def test_create_topic_rate_limited():
+    store = Store(":memory:", check_same_thread=False)
+    c = _client(store)
+    c.get("/api/me", headers=AUTH)
+    for i in range(5):  # default cap is 5/hr
+        assert c.post("/api/topics", json={"slug": f"t{i}", "name": "x"}, headers=AUTH).status_code == 200
+    assert c.post("/api/topics", json={"slug": "t6", "name": "x"}, headers=AUTH).status_code == 429
+
+
+def test_provision_unknown_topic_404():
+    store = Store(":memory:", check_same_thread=False)
+    c = _client(store)
+    c.get("/api/me", headers=AUTH)
+    assert c.post("/api/topics/nope/provision", headers=AUTH).status_code == 404
 
 
 def test_subscribe_unknown_topic_404():
