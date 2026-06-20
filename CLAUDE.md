@@ -117,46 +117,51 @@ tests/           pytest (network-free; uses tests/fixtures/sample_feed.xml)
 
 Shipped: `0002` ingestion core · `0003` consumer API · `0004` Brave discovery ·
 `0005` multi-user + settings + email · `0006/0007` dashboard (design + Firebase
-API) · dashboard **frontend** (`dashboard/`, Vite+React+TS, custom tokens,
-Firebase login, Headlines/Topics/TopicDetail/Settings, witty loading phrases).
+API) · **`0008` v1-dashboard port** (Headlines/Chat/Stories/Favorites + `/admin/
+topics`, prefixed ULIDs, brief engine, chat agent).
 
 ## WHERE WE ARE — pick up here (2026-06-19)
 
-The dashboard works end-to-end: log in (Firebase) → Topics → open a topic →
-**Discover sources** (Brave) → **Approve** → **Collect now** → items show in
-Headlines. `make dev` runs backend(:8080)+frontend(:5173) together.
+**Plan `0008` (phases 1–6) is done** — the original briefbot's normal-flow
+dashboard is ported into bbv2. Run `make dev` (backend :8080 + frontend :5173):
 
-**Live creds status:** backend Firebase service-account is wired (`FIREBASE_CONFIG`,
-project `briefbot-v2`, init verified). Frontend `dashboard/.env` still **needs
-`VITE_FIREBASE_API_KEY` + `VITE_FIREBASE_APP_ID`** (web config was deleted; user
-to provide or restore `config/firebase.json`). Login works once those are set.
+- **Routes:** `/headlines` (tabbed: *Today* = generated brief — title + summary +
+  Trending + Sources; per-topic tabs = stories newest-first), `/chat` (Haiku
+  tool-use agent, SSE), `/stories` (search/source/sort + vote + ☆ save),
+  `/favorites` (folders + links), `/topics` (stub — user flow not built yet).
+  Source curation moved to **`/admin/topics`** (Discover/Approve/Collect/Generate
+  brief), unchanged behavior.
+- **IDs:** prefixed ULIDs (`ITM…`/`SRC…`/`TOP…`/`CLU…`/`FAV…`/`FLD…`/`CON…`/
+  `MSG…`/`BRF…`) via `bbv2/ids.py`. Dedupe still on `dedupe_key`.
+- **Brief:** `bbv2/brief.py` + `cluster.py` + `llm.py` (Haiku). Generate via the
+  admin button or CLI `bbv2 brief [--topic]`. Stored in `briefs` table.
+- **New modules:** `ids`, `cluster`, `llm`, `brief`, `agent`, store mixins
+  (`store_dashboard`/`store_favorites`/`store_chat`). 46 pytest pass; build clean.
+- **Live LLM (Haiku) is user-invoked only** (brief generation, chat). Needs
+  `ANTHROPIC_API_KEY`.
 
-### OPEN BUGS to fix next
+**DB was wiped** (fresh `data/bbv2.db`) when ULIDs landed. To re-seed: log in
+(auto-provisions the user) → `/admin/topics` create a topic → Discover → Approve →
+Collect → Generate brief → see `/headlines`.
 
-1. **"Approve all" → "failed to fetch".** Single approve works; the bulk path
-   (`Promise.all` of approve POSTs in `dashboard/src/pages/TopicDetail.tsx`)
-   fails. Likely **concurrent writes on the one shared SQLite connection**
-   (`bbv2 serve` uses `Store(check_same_thread=False)`; the threadpool runs the
-   POSTs in parallel → lock/"recursive cursor"/dropped connection → browser sees
-   "failed to fetch"). **Fix:** add a backend **bulk approve** endpoint
-   (`POST /api/topics/{slug}/sources/approve-all` or accept ids) that does the
-   updates on the server in one request; or serialize client-side (await in a
-   loop, not Promise.all); ideally also guard the store with a write lock.
-2. **Old items in Headlines (e.g. "2207d ago").** Collect ingests items with very
-   old/garbage `published_at` (some feeds carry stale entries). Expectation:
-   pulled stories should be ~that day. **Fix:** in `bbv2/collect.py`, **filter
-   items to recent** (e.g. drop items whose `published_at` is older than N days,
-   default ~2–3) before upsert; also sanity-check date parsing in
-   `normalize.py`/`util.parse_to_utc_iso` (a misparse could yield epoch-ish
-   dates). Keep it configurable.
+**Creds:** backend Firebase service-account wired (`FIREBASE_CONFIG`, project
+`briefbot-v2`). Frontend `dashboard/.env` still **needs `VITE_FIREBASE_API_KEY` +
+`VITE_FIREBASE_APP_ID`** for live login.
 
-### Then continue
+### NEXT (own plans — the rest of the re-scope)
 
-- Wire the frontend env once API key/appId arrive; live-test login + the loop.
-- Remaining roadmap (`_documentation/roadmap.md`): non-English filtering, LLM
-  briefs (use **Haiku**), engagement (like/favorites/discuss), HN/arXiv fetchers.
-- Trader data platform (`../trader/_plans/0017`) stays parked until bbv2 steady;
-  first piece there is the kline collector.
-
-Build order ref: `0001` design → consumer API → discovery → multi-user → dashboard
-→ briefs → engagement.
+- **`/topics` user flow + roles:** any user creates a topic → auto-discover +
+  **auto-approve** sources → collect → Subscribe (loading UI throughout). Move
+  source curation behind an **admin role**; gate `/admin/*` (regular users can't
+  see it). Add `admin`/`user` roles (config `ADMIN_EMAILS` or CLI).
+- **Settings:** per-user accent **color picker** (light accent is hardcoded blue
+  now); plus the existing digest settings.
+- **Logo** to replace the `◆` brand-mark; **article images** on cards (extract
+  `media:content`/`enclosure` + `og:image`).
+- **Persistent clusters** (unlocks the Stories cluster/tag filters deferred in
+  0008 Phase 3) + per-article deep summaries; brief **cron** cadence.
+- **Two pre-pivot bugs still open** (predate 0008, low priority now that flow is
+  changing): admin "Approve all" uses `Promise.all` of POSTs → "failed to fetch"
+  (serialize or add a bulk endpoint); collect ingests stale `published_at` items
+  → add a recency filter in `bbv2/collect.py`.
+- Trader data platform (`../trader/_plans/0017`) stays parked until bbv2 steady.
