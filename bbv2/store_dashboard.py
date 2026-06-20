@@ -16,6 +16,29 @@ from .util import json_dumps, utc_now_iso
 class DashboardQueriesMixin:
     conn: sqlite3.Connection  # provided by Store
 
+    # ---- topic relevance keywords ----
+    def get_topic_keywords(self, topic_slug: str) -> list[str]:
+        row = self.conn.execute(
+            "SELECT keywords_json FROM topics WHERE slug = ?", (topic_slug,)
+        ).fetchone()
+        if not row or not row["keywords_json"]:
+            return []
+        import json
+
+        try:
+            return list(json.loads(row["keywords_json"]))
+        except Exception:
+            return []
+
+    def set_topic_keywords(self, topic_slug: str, keywords: list[str]) -> None:
+        import json
+
+        self.conn.execute(
+            "UPDATE topics SET keywords_json = ? WHERE slug = ?",
+            (json.dumps(keywords), topic_slug),
+        )
+        self.conn.commit()
+
     # ---- provisioning helpers ----
     def approve_all_candidates(self, topic_slug: str) -> int:
         """Auto-approve every candidate source on a topic (candidate→active).
@@ -61,6 +84,7 @@ class DashboardQueriesMixin:
         *,
         search: str | None = None,
         source_name: str | None = None,
+        topic_slug: str | None = None,
         from_iso: str | None = None,
         to_iso: str | None = None,
         order: str = "desc",
@@ -78,6 +102,9 @@ class DashboardQueriesMixin:
             "WHERE sub.user_id = ?",
         ]
         params: list[Any] = [user_id, user_id]
+        if topic_slug:
+            sql.append("AND it.topic_id = (SELECT id FROM topics WHERE slug = ?)")
+            params.append(topic_slug)
         if source_name:
             sql.append("AND i.source_name = ?")
             params.append(source_name)

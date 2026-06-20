@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import AddIcon from "@mui/icons-material/Add";
+import SendIcon from "@mui/icons-material/Send";
 import {
   api,
   type ChatMessage,
@@ -123,11 +125,12 @@ export function Chat() {
   };
 
   return (
-    <div className="page">
+    <div className="page wide chat-page">
       <div className="chat">
         <aside className="chat-side">
-          <button className="btn primary chat-new" onClick={newChat}>
-            + New chat
+          <button className="btn primary chat-new icon-btn-text" onClick={newChat}>
+            <AddIcon fontSize="small" />
+            New chat
           </button>
           <ul className="convo-list">
             {convos.map((c) => (
@@ -181,7 +184,12 @@ export function Chat() {
               onChange={(e) => setInput(e.target.value)}
               disabled={sending}
             />
-            <button className="btn primary" type="submit" disabled={sending || !input.trim()}>
+            <button
+              className="btn primary icon-btn-text"
+              type="submit"
+              disabled={sending || !input.trim()}
+            >
+              <SendIcon fontSize="small" />
               {sending ? "…" : "Send"}
             </button>
           </form>

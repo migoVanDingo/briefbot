@@ -112,7 +112,12 @@ def build_brief(
             for t in trending
         ],
         "sources": [
-            {"title": s["title"], "url": s["url"], "source_name": s["source_name"]}
+            {
+                "title": s["title"],
+                "url": s["url"],
+                "source_name": s["source_name"],
+                "item_id": s["item_id"],
+            }
             for s in top_stories
         ],
         "model": config.anthropic_model(),

@@ -23,7 +23,8 @@ a Vite/React dashboard with Firebase auth:
   provision pipeline → subscribe).
 - **Roles + guardrails** — owner-only admin (`ADMIN_EMAILS`); tiered topic
   moderation (validation → keyword → Haiku classifier), per-user rate limits,
-  domain denylist.
+  domain denylist; off-topic **relevance filtering**, HTML-stripped blurbs,
+  Title-cased names.
 - **Consumer API** — token-auth read API for service accounts.
 
 Run it: see [`CLAUDE.md`](./CLAUDE.md) for commands (`make dev`), and

@@ -1,8 +1,18 @@
 # 0010 — Relevance filter, display polish, ratings parity, normalization, sanitization
 
-**Status:** 📋 Planned — captured 2026-06-19 (for tomorrow)
+**Status:** ✅ Implemented (2026-06-19, overnight)
 **Date:** 2026-06-19
 **Phase:** Build · **Depends on:** [0009](./0009-user-topic-flow-and-roles.md)
+
+> **Shipped:** A relevance filter (`relevance.py`, lazy per-topic keywords) ·
+> B HTML-stripped title/summary at ingest (`util.strip_html`) · C Title-case
+> topic + folder names (`util.titlecase`) · D thumbs + favorite on Headlines via
+> shared `StoryRow` (topic tabs use `query_stories(topic=…)`; brief sources carry
+> `item_id`) · E/G `StoryRow` + filter bar (date range, no-wrap buttons) + MUI
+> **thumbs** icons · F wider `/chat` (`.page.wide`) + spacing · H folder/search
+> input sanitized (`sanitize_name`, maxlength) · I+J **MUI** reintroduced for
+> icons across nav/headings/buttons. 70 pytest pass; dashboard build clean.
+> Cluster/tag Stories filters still pending persistent clusters (roadmap).
 
 Captured from a review of the live app (topic `crypto`). A grab-bag polish +
 quality pass. Items are independent — do in any order.
@@ -109,6 +119,14 @@ can"). Plan: add **`@mui/icons-material`** (+ `@mui/material` peer if needed) fo
 icons (thumbs up/down, star, etc.), used **selectively** — keep the custom CSS
 design system for layout/theme; MUI for icons (and any widget that's clearly
 better than hand-rolling). Wire MUI theme to our CSS vars / dark-light mode.
+
+## J. Icons across the UI (with MUI)
+
+Add icons to **all tabs, buttons, and headings** where one fits: nav tabs
+(Headlines/Chat/Stories/Favorites/Topics/Admin/Settings), page-title headings, and
+action buttons (create, search, send, new chat, discover, collect, generate brief,
+sign out, add folder, subscribe, vote, star). Use `@mui/icons-material`; keep them
+tasteful and consistent (size/color via theme). Icons inherit `currentColor`.
 
 ## Done when
 

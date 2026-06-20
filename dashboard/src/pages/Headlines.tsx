@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
-import { api, type Brief, type Item, type TopicTab } from "../api";
+import ArticleIcon from "@mui/icons-material/ArticleOutlined";
+import TrendingUpIcon from "@mui/icons-material/TrendingUp";
+import { api, type Brief, type Story, type TopicTab } from "../api";
 import { useToasts } from "../state/toasts";
-import { timeAgo } from "../lib/format";
+import { StoryRow } from "../components/StoryRow";
 
 const TODAY = "__today__";
 
@@ -17,7 +19,7 @@ export function Headlines() {
   const [tabs, setTabs] = useState<TopicTab[]>([]);
   const [briefs, setBriefs] = useState<Brief[] | null>(null);
   const [active, setActive] = useState<string>(TODAY);
-  const [items, setItems] = useState<Item[] | null>(null);
+  const [stories, setStories] = useState<Story[] | null>(null);
 
   useEffect(() => {
     api
@@ -32,21 +34,25 @@ export function Headlines() {
       });
   }, [push]);
 
-  // A topic tab shows that topic's stories (newest first).
+  // A topic tab shows that topic's stories (newest first), with votes + save.
   useEffect(() => {
     if (active === TODAY) return;
-    setItems(null);
+    setStories(null);
     api
-      .topicItems(active, 50)
-      .then(setItems)
+      .queryStories({ topic: active, limit: 50 })
+      .then(setStories)
       .catch((e) => {
         push(String(e), "error");
-        setItems([]);
+        setStories([]);
       });
   }, [active, push]);
 
   return (
     <div className="page">
+      <h1 className="page-title">
+        <ArticleIcon className="title-ico" /> Headlines
+      </h1>
+
       <div className="tabs">
         <button
           className={`tab${active === TODAY ? " active" : ""}`}
@@ -79,24 +85,25 @@ export function Headlines() {
         ) : (
           briefs.map((b) => <BriefCard key={b.topic_slug} brief={b} />)
         )
+      ) : stories === null ? (
+        <div className="muted pad">Loading…</div>
+      ) : stories.length === 0 ? (
+        <div className="empty">
+          <h2>No stories yet</h2>
+          <p className="muted">Nothing collected for this topic yet.</p>
+        </div>
       ) : (
-        <ItemList items={items} />
+        <ul className="story-list">
+          {stories.map((s) => (
+            <StoryRow key={s.item_id} story={s} />
+          ))}
+        </ul>
       )}
     </div>
   );
 }
 
 function BriefCard({ brief }: { brief: Brief }) {
-  const push = useToasts((s) => s.push);
-  const save = async (title: string, url: string | null) => {
-    if (!url) return;
-    try {
-      await api.addFavorite({ title, url });
-      push("Saved to favorites", "success");
-    } catch (e) {
-      push(String(e), "error");
-    }
-  };
   return (
     <section className="brief">
       <div className="brief-head">
@@ -112,7 +119,9 @@ function BriefCard({ brief }: { brief: Brief }) {
 
       {brief.trending.length > 0 && (
         <div className="brief-section">
-          <h2 className="section-title">Trending</h2>
+          <h2 className="section-title">
+            <TrendingUpIcon className="sec-ico" /> Trending
+          </h2>
           <ul className="list">
             {brief.trending.map((t, i) => (
               <li key={i} className="list-row">
@@ -141,67 +150,21 @@ function BriefCard({ brief }: { brief: Brief }) {
       {brief.sources.length > 0 && (
         <div className="brief-section">
           <h2 className="section-title">Sources</h2>
-          <ul className="feed">
+          <ul className="story-list">
             {brief.sources.map((s, i) => (
-              <li key={i} className="feed-item">
-                <a
-                  className="feed-title"
-                  href={s.url ?? "#"}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  {s.title}
-                </a>
-                <div className="feed-meta">
-                  <span className="chip">{s.source_name}</span>
-                  <span className="vote">
-                    <button
-                      className="vote-btn"
-                      onClick={() => save(s.title, s.url)}
-                      disabled={!s.url}
-                      aria-label="Save to favorites"
-                      title="Save to favorites"
-                    >
-                      ☆
-                    </button>
-                  </span>
-                </div>
-              </li>
+              <StoryRow
+                key={s.item_id ?? i}
+                story={{
+                  item_id: s.item_id ?? "",
+                  title: s.title,
+                  url: s.url,
+                  source_name: s.source_name,
+                }}
+              />
             ))}
           </ul>
         </div>
       )}
     </section>
-  );
-}
-
-function ItemList({ items }: { items: Item[] | null }) {
-  if (items === null) return <div className="muted pad">Loading…</div>;
-  if (items.length === 0)
-    return (
-      <div className="empty">
-        <h2>No stories yet</h2>
-        <p className="muted">Nothing collected for this topic yet.</p>
-      </div>
-    );
-  return (
-    <ul className="feed">
-      {items.map((it) => (
-        <li key={it.item_id} className="feed-item">
-          <a
-            href={it.url ?? "#"}
-            target="_blank"
-            rel="noreferrer"
-            className="feed-title"
-          >
-            {it.title}
-          </a>
-          <div className="feed-meta">
-            <span className="chip">{it.source_name}</span>
-            <span className="muted">{timeAgo(it.published_at ?? it.fetched_at)}</span>
-          </div>
-        </li>
-      ))}
-    </ul>
   );
 }

@@ -10,9 +10,15 @@ from __future__ import annotations
 import sqlite3
 
 from . import ids
-from .util import utc_now_iso
+from .util import titlecase, utc_now_iso
 
 DEFAULT_FOLDER = "favorites"
+
+
+def _folder_name(name: str) -> str:
+    """Title-case folder names, but keep the internal default ('favorites')."""
+    name = (name or "").strip() or DEFAULT_FOLDER
+    return name if name.lower() == DEFAULT_FOLDER else titlecase(name)
 
 
 class FavoriteQueriesMixin:
@@ -20,7 +26,7 @@ class FavoriteQueriesMixin:
 
     def create_folder(self, user_id: int, name: str) -> str:
         """Get-or-create a folder by name for a user; returns its id."""
-        name = (name or "").strip() or DEFAULT_FOLDER
+        name = _folder_name(name)
         self.conn.execute(
             """INSERT OR IGNORE INTO favorite_folders (id, user_id, name, created_at)
                VALUES (?, ?, ?, ?)""",
@@ -56,7 +62,7 @@ class FavoriteQueriesMixin:
     def get_folder_by_name(self, user_id: int, name: str) -> sqlite3.Row | None:
         return self.conn.execute(
             "SELECT * FROM favorite_folders WHERE user_id = ? AND name = ?",
-            (user_id, name),
+            (user_id, _folder_name(name)),
         ).fetchone()
 
     def add_favorite(

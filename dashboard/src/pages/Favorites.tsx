@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
+import StarIcon from "@mui/icons-material/StarBorder";
+import CreateNewFolderIcon from "@mui/icons-material/CreateNewFolderOutlined";
+import CloseIcon from "@mui/icons-material/Close";
 import { api, type Favorite, type Folder } from "../api";
 import { useToasts } from "../state/toasts";
 
@@ -66,7 +69,9 @@ export function Favorites() {
 
   return (
     <div className="page">
-      <h1 className="page-title">Favorites</h1>
+      <h1 className="page-title">
+        <StarIcon className="title-ico" /> Favorites
+      </h1>
 
       <div className="tabs">
         {folders.map((f) => (
@@ -84,9 +89,11 @@ export function Favorites() {
         <input
           placeholder="New folder name"
           value={newName}
+          maxLength={60}
           onChange={(e) => setNewName(e.target.value)}
         />
-        <button className="btn" type="submit">
+        <button className="btn icon-btn-text" type="submit">
+          <CreateNewFolderIcon fontSize="small" />
           Add folder
         </button>
       </form>
@@ -116,12 +123,12 @@ export function Favorites() {
                 <div className="muted small">{fav.url}</div>
               </div>
               <button
-                className="btn ghost"
+                className="icon-act"
                 onClick={() => remove(fav)}
                 aria-label="Remove from folder"
                 title="Remove"
               >
-                ✕
+                <CloseIcon fontSize="small" />
               </button>
             </li>
           ))}

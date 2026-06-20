@@ -17,6 +17,7 @@ from .util import (
     normalize_text,
     parse_to_utc_iso,
     stable_hash,
+    strip_html,
     utc_now_iso,
 )
 
@@ -62,12 +63,12 @@ def _base_item(
         "canonical_url": canonical_url,
         "source_id": source_id,
         "source_name": source_name,
-        "title": normalize_text(title) or "(untitled)",
+        "title": strip_html(title) or "(untitled)",
         "url": canonical_url or url,
         "published_at": published_iso,
         "fetched_at": fetched_at,
         "author": normalize_text(author),
-        "summary": normalize_text(summary),
+        "summary": strip_html(summary),
         "tags": source.get("tags", []),
         "raw": raw,
         "metrics": metrics or {},

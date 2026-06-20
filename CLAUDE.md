@@ -111,7 +111,10 @@ tests/           pytest (network-free; uses tests/fixtures/sample_feed.xml)
 - **Copied modules stay faithful** to the original so future copies stay easy;
   bbv2-specific behavior goes in new modules (score/store/collect/cli/config).
 - Tests must run offline (use the fixture feed; never hit the network in tests).
-- Keep files focused and reasonably small.
+- Keep files focused and reasonably small (≤600 lines; split into modules/mixins).
+- **Keep docs current as part of every feature task** (not a later TODO): update
+  `_documentation/architecture.md` and `README.md` to match new behavior, and
+  **prune** `_documentation/roadmap.md` (move shipped items out, keep what's left).
 
 ## Status / plans
 

@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS topics (
     slug TEXT NOT NULL UNIQUE,
     name TEXT NOT NULL,
     description TEXT,
+    keywords_json TEXT,
     created_at TEXT NOT NULL
 );
 

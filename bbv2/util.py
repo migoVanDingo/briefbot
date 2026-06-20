@@ -10,7 +10,9 @@ modules drop in unchanged.
 from __future__ import annotations
 
 import hashlib
+import html as _html
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -106,3 +108,19 @@ def normalize_text(text: str | None) -> str:
     if not text:
         return ""
     return " ".join(text.split()).strip()
+
+
+_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def strip_html(text: str | None) -> str:
+    """Remove HTML tags + unescape entities → plain text (for feed summaries)."""
+    if not text:
+        return ""
+    return " ".join(_html.unescape(_TAG_RE.sub(" ", text)).split())
+
+
+def titlecase(text: str | None) -> str:
+    """Capitalize the first letter of each word; leave the rest as-is
+    (so acronyms/tickers keep their case). `crypto` → `Crypto`."""
+    return " ".join(w[:1].upper() + w[1:] if w else w for w in (text or "").split())

@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import AddIcon from "@mui/icons-material/Add";
+import TopicIcon from "@mui/icons-material/TagOutlined";
 import { api, type Topic } from "../api";
 import { useToasts } from "../state/toasts";
 import { LoadingBanner } from "../components/LoadingBanner";
@@ -69,22 +71,31 @@ export function TopicsHome() {
 
   return (
     <div className="page">
-      <h1 className="page-title">Topics</h1>
+      <h1 className="page-title">
+        <TopicIcon className="title-ico" /> Topics
+      </h1>
 
       <form onSubmit={create} className="row-form card">
         <input
           placeholder="slug (e.g. hacking)"
           value={slug}
+          maxLength={40}
           onChange={(e) => setSlug(e.target.value)}
           disabled={!!provisioning}
         />
         <input
           placeholder="Display name"
           value={name}
+          maxLength={80}
           onChange={(e) => setName(e.target.value)}
           disabled={!!provisioning}
         />
-        <button className="btn primary" type="submit" disabled={!!provisioning}>
+        <button
+          className="btn primary icon-btn-text"
+          type="submit"
+          disabled={!!provisioning}
+        >
+          <AddIcon fontSize="small" />
           {provisioning ? "Setting up…" : "Create topic"}
         </button>
       </form>

@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
+import SearchIcon from "@mui/icons-material/Search";
+import DownloadIcon from "@mui/icons-material/CloudDownloadOutlined";
+import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
+import CheckIcon from "@mui/icons-material/Check";
+import CloseIcon from "@mui/icons-material/Close";
 import { api, type Source, type Item } from "../../api";
 import { useToasts } from "../../state/toasts";
 import { timeAgo } from "../../lib/format";
@@ -115,13 +120,28 @@ export function TopicDetail() {
       <div className="detail-head">
         <h1 className="page-title">{slug}</h1>
         <div className="detail-actions">
-          <button className="btn" onClick={discover} disabled={discovering}>
+          <button
+            className="btn icon-btn-text"
+            onClick={discover}
+            disabled={discovering}
+          >
+            <SearchIcon fontSize="small" />
             {discovering ? "Discovering…" : "Discover sources"}
           </button>
-          <button className="btn primary" onClick={collect} disabled={collecting}>
+          <button
+            className="btn primary icon-btn-text"
+            onClick={collect}
+            disabled={collecting}
+          >
+            <DownloadIcon fontSize="small" />
             {collecting ? "Collecting…" : "Collect now"}
           </button>
-          <button className="btn" onClick={makeBrief} disabled={briefing}>
+          <button
+            className="btn icon-btn-text"
+            onClick={makeBrief}
+            disabled={briefing}
+          >
+            <AutoAwesomeIcon fontSize="small" />
             {briefing ? "Briefing…" : "Generate brief"}
           </button>
         </div>
@@ -148,10 +168,18 @@ export function TopicDetail() {
                   <div className="muted small">{s.url}</div>
                 </div>
                 <div className="src-actions">
-                  <button className="btn primary" onClick={() => approve(s)}>
+                  <button
+                    className="btn primary icon-btn-text"
+                    onClick={() => approve(s)}
+                  >
+                    <CheckIcon fontSize="small" />
                     Approve
                   </button>
-                  <button className="btn ghost" onClick={() => reject(s)}>
+                  <button
+                    className="btn ghost icon-btn-text"
+                    onClick={() => reject(s)}
+                  >
+                    <CloseIcon fontSize="small" />
                     Reject
                   </button>
                 </div>

@@ -102,6 +102,7 @@ export interface Story extends Item {
 export interface StoryFilters {
   search?: string;
   source?: string;
+  topic?: string;
   from?: string;
   to?: string;
   order?: "asc" | "desc";
@@ -120,6 +121,7 @@ export interface BriefSource {
   title: string;
   url: string | null;
   source_name: string;
+  item_id?: string | null;
 }
 
 export interface Brief {

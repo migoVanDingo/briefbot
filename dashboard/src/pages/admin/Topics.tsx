@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import AddIcon from "@mui/icons-material/Add";
 import { api, type Topic } from "../../api";
 import { useToasts } from "../../state/toasts";
 
@@ -71,7 +72,8 @@ export function Topics() {
           value={name}
           onChange={(e) => setName(e.target.value)}
         />
-        <button className="btn primary" type="submit">
+        <button className="btn primary icon-btn-text" type="submit">
+          <AddIcon fontSize="small" />
           Add topic
         </button>
       </form>

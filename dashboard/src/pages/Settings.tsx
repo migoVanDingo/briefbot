@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import SettingsIcon from "@mui/icons-material/SettingsOutlined";
+import SaveIcon from "@mui/icons-material/SaveOutlined";
 import { api, type Settings as S } from "../api";
 import { useToasts } from "../state/toasts";
 
@@ -31,7 +33,9 @@ export function Settings() {
 
   return (
     <div className="page narrow">
-      <h1 className="page-title">Settings</h1>
+      <h1 className="page-title">
+        <SettingsIcon className="title-ico" /> Settings
+      </h1>
       <div className="card form">
         <label className="check">
           <input
@@ -60,7 +64,12 @@ export function Settings() {
           />
         </label>
 
-        <button className="btn primary" onClick={save} disabled={saving}>
+        <button
+          className="btn primary icon-btn-text"
+          onClick={save}
+          disabled={saving}
+        >
+          <SaveIcon fontSize="small" />
           {saving ? "Saving…" : "Save"}
         </button>
       </div>

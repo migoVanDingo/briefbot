@@ -92,6 +92,21 @@ def ratelimit_provision() -> tuple[int, float]:
     return _int_env("RL_PROVISION_PER_HOUR", 10), 3600.0
 
 
+def relevance_enabled() -> bool:
+    """Drop off-topic items at collect (keyword relevance to the topic)."""
+    return os.getenv("RELEVANCE_FILTER", "true").strip().lower() not in {
+        "0",
+        "false",
+        "no",
+        "off",
+    }
+
+
+def relevance_min_hits() -> int:
+    """Min keyword matches for an item to count as relevant to a topic."""
+    return _int_env("RELEVANCE_MIN_HITS", 1)
+
+
 def mailgun_config() -> dict[str, str] | None:
     """Mailgun settings if fully configured, else None (→ use LogNotifier).
 

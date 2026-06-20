@@ -14,9 +14,10 @@ from fastapi.responses import StreamingResponse
 
 from . import config
 from .api import _bearer, _item_dict
-from .moderation import ModerationError, moderate_topic
+from .moderation import ModerationError, moderate_topic, sanitize_name
 from .ratelimit import limiter
 from .store import Store
+from .util import titlecase
 
 Verifier = Callable[[str], dict[str, Any]]
 MAX_LIMIT = 200
@@ -133,10 +134,10 @@ def add_dashboard_routes(
             )
         except ModerationError as exc:
             raise HTTPException(status_code=422, detail=exc.reason)
-        slug, name = clean["slug"], clean["name"]
+        slug, name = clean["slug"], titlecase(clean["name"])
         existed = store.get_topic(slug) is not None
         store.add_topic(slug, name, body.get("description") or "")
-        return {"ok": True, "slug": slug, "existed": existed}
+        return {"ok": True, "slug": slug, "name": name, "existed": existed}
 
     @router.post("/topics/{slug}/provision")
     def provision(slug: str, user: dict = Depends(current_user)) -> StreamingResponse:
@@ -242,8 +243,9 @@ def add_dashboard_routes(
         limit = int(body.get("limit") or 30)
         rows = store.query_stories(
             user["id"],
-            search=(body.get("search") or "").strip() or None,
+            search=sanitize_name(body.get("search") or "") or None,  # strip tags/ctrl
             source_name=(body.get("source") or "").strip() or None,
+            topic_slug=(body.get("topic") or "").strip() or None,
             from_iso=(body.get("from") or "").strip() or None,
             to_iso=(body.get("to") or "").strip() or None,
             order=body.get("order") or "desc",
@@ -312,11 +314,11 @@ def add_dashboard_routes(
     def create_folder(
         body: dict = Body(...), user: dict = Depends(current_user)
     ) -> dict[str, Any]:
-        name = (body.get("name") or "").strip()
+        name = sanitize_name(body.get("name") or "")
         if not name:
             raise HTTPException(status_code=400, detail="name required")
-        fid = store.create_folder(user["id"], name)
-        return {"ok": True, "id": fid, "name": name}
+        fid = store.create_folder(user["id"], name)  # store Title-cases it
+        return {"ok": True, "id": fid, "name": titlecase(name)}
 
     @router.get("/favorites/items")
     def favorite_items(

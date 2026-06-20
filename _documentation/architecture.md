@@ -31,7 +31,8 @@ in Starlette's threadpool over one shared `Store(check_same_thread=False)` (WAL)
 - **Persistence** — `store.py` (schema + core queries) + mixins
   (`store_dashboard`, `store_favorites`, `store_chat`). One SQLite DB, own to bbv2.
 - **Pure logic** (no I/O, unit-tested) — `normalize.py`, `score.py`, `cluster.py`,
-  `moderation.py`, `ratelimit.py`, `denylist.py`, `ids.py`, `util.py`.
+  `moderation.py`, `relevance.py`, `ratelimit.py`, `denylist.py`, `ids.py`,
+  `util.py` (incl. `strip_html`, `titlecase`).
 - **Pipelines / orchestration** — `collect.py`, `discovery.py`, `brief.py`,
   `provision.py`, `agent.py`, `digest.py`.
 - **Entry points** — `cli.py` (`python -m bbv2 …`), `api.py` (consumer),
@@ -52,8 +53,11 @@ ULID PK isn't content-derived; `store.upsert_item` returns the canonical id.
 
 ## Key flows
 
-- **Collect** (`collect.py`): active sources → `fetch_rss_feed` → `normalize` →
-  `score` → `upsert_item` (dedupe) → `map_item_topic`.
+- **Collect** (`collect.py`): active sources → `fetch_rss_feed` → `normalize`
+  (HTML-stripped title/summary) → `score` → **relevance filter** (`relevance.py`:
+  keep an item for a topic only if it matches that topic's keywords — the name
+  plus an LLM-expanded set in `topics.keywords_json`) → `upsert_item` (dedupe) →
+  `map_item_topic`. Drops off-topic stories that aggregator sources carry.
 - **Discover** (`discovery.py`): topic → Brave queries → site homepages
   (skipping `denylist` domains) → `discover_site_feeds` → candidate sources.
 - **Provision** (`provision.py`, user flow): a generator streaming SSE stages
@@ -90,10 +94,15 @@ ULID PK isn't content-derived; `store.upsert_item` returns the canonical id.
 State: Zustand (`auth`, `toasts`, theme). Theme tokens in `theme.ts` →
 injected CSS vars. SSE (chat + provision) is consumed via `fetch` +
 `ReadableStream` (`api.streamSSE`) so the Firebase bearer header can be attached.
+**MUI** (`@mui/icons-material`) is used **selectively for icons** (nav, buttons,
+thumbs/star) — layout/theme stays custom CSS. A shared `StoryRow` (thumbs
+up/down + save) renders stories on Stories and Headlines.
 
 ## Conventions / invariants
 
 - **og briefbot is never modified**; bbv2 owns its DB. Copy code one-directional.
+- **Names are Title-cased** at storage (topics, folders); **feed summaries are
+  HTML-stripped** at ingest; user input is sanitized (slug regex / `sanitize_name`).
 - **LLM = Claude Haiku** everywhere; live LLM calls are user-invoked (brief, chat,
   moderation). `ANTHROPIC_API_KEY` required for those.
 - **600-line cap** per source file (split into modules/mixins as they grow).

@@ -29,6 +29,10 @@ This file holds what's **left** — backlog and known rough edges.
   comment feeds). Consider an LLM ranker/labeler + a feed "health" check (recent,
   real entries) before approving.
 - **Feed-URL dedupe.** Treat trailing-slash variants (`/feed` vs `/feed/`) as one.
+- **Relevance tuning (0010).** The off-topic filter is whole-token keyword match
+  against an LLM-expanded set, so a ticker-only headline ("BTCUSDT: …") with no
+  spelled-out keyword can be dropped. Tune `RELEVANCE_MIN_HITS`, grow the keyword
+  set, or add an LLM tier for borderline items; `RELEVANCE_FILTER=false` disables.
 
 ## Known bugs (pre-0008, low priority — flow changed since)
 
@@ -43,4 +47,6 @@ This file holds what's **left** — backlog and known rough edges.
 
 Multi-user + settings + email (0005), dashboard + Firebase API (0006/0007),
 v1-dashboard port — Headlines/Chat/Stories/Favorites, prefixed ULIDs, brief
-engine, chat agent (0008), user topic flow + owner-only roles + guardrails (0009).
+engine, chat agent (0008), user topic flow + owner-only roles + guardrails (0009),
+relevance filter + HTML-stripped blurbs + Title-cased names + Headlines ratings +
+chat layout + Stories thumbs/date filter + input sanitization + MUI icons (0010).
