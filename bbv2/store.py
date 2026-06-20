@@ -504,6 +504,12 @@ class Store(DashboardQueriesMixin, FavoriteQueriesMixin, ChatQueriesMixin):
             "SELECT * FROM users WHERE email = ?", (email,)
         ).fetchone()
 
+    def set_user_role(self, email: str, role: str) -> None:
+        self.conn.execute(
+            "UPDATE users SET role = ? WHERE email = ?", (role, email)
+        )
+        self.conn.commit()
+
     def list_users(self) -> list[sqlite3.Row]:
         return self.conn.execute("SELECT * FROM users ORDER BY name").fetchall()
 

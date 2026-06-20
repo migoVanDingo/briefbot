@@ -57,20 +57,21 @@ arson, violence/terror, hard-drug synthesis, self-harm) are denied.
    (if pass) Haiku classifier. Site/domain filtering happens later, during
    discovery.
 
-## Phase 1 — Roles + admin gating (owner-only)
+## Phase 1 — Roles + admin gating (owner-only) ✅ (2026-06-19)
 
-- [ ] **1.1** `config.admin_emails()` from `ADMIN_EMAILS`. Store
-      `set_user_role(email, role)`. In `current_user`: after auto-provision, if
-      `email in admin_emails` ensure `role='admin'` (never demote). Return `role`.
-- [ ] **1.2** `require_admin` dependency (403 unless `role == 'admin'`). **No**
-      role-setting endpoint/tool/CLI exists.
-- [ ] **1.3** Gate admin-only routes: `discover`, `GET sources`, `approve|reject`,
-      `collect`, `brief`. Open to all authed users: me, topics GET/POST, provision,
-      subscribe, headlines, items, stories, favorites, conversations, settings.
-- [ ] **1.4** `/api/me` returns `role`; frontend `auth` store carries it.
-- [ ] **1.5** Frontend: `AppShell` shows **Admin** only when `role==='admin'`;
-      `/admin/*` route guard redirects non-admins → `/headlines` (toast). Test:
-      non-admin gets 403 on a gated route + can't see the link.
+- [x] **1.1** `config.admin_emails()` (lowercased set from `ADMIN_EMAILS`); store
+      `set_user_role(email, role)`. `current_user` promotes to `admin` on an
+      `ADMIN_EMAILS` match (never demotes), reads the stored role, returns it.
+- [x] **1.2** `require_admin` dependency (403 unless `role == 'admin'`). No
+      role-setting endpoint/tool/CLI — promotion is `ADMIN_EMAILS`-only.
+- [x] **1.3** Gated (admin-only): `discover`, `GET sources`, `approve`, `reject`,
+      `collect`, `brief`. Open to all: me, topics GET/POST, subscribe, headlines,
+      items, stories, favorites, conversations, settings (provision lands Phase 3).
+- [x] **1.4** `/api/me` → `user.role`; frontend `Me` type carries it.
+- [x] **1.5** `AppShell` shows **Admin** only for admins; `App.tsx` `RequireAdmin`
+      guard redirects non-admins on `/admin/*` → `/headlines`.
+- [x] **1.6** `pytest` 47 green (non-admin 403 on gated routes; role in `/api/me`;
+      promote → 200); `tsc && vite build` clean.
 
 ## Phase 2 — Guardrails: validation, moderation, rate limit
 

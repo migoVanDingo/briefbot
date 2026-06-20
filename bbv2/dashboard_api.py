@@ -12,6 +12,7 @@ from typing import Any, Callable
 from fastapi import APIRouter, Body, Depends, FastAPI, Header, HTTPException
 from fastapi.responses import StreamingResponse
 
+from . import config
 from .api import _bearer, _item_dict
 from .store import Store
 
@@ -45,7 +46,12 @@ def _make_current_user(store: Store, verifier: Verifier):
             raise HTTPException(status_code=401, detail="token has no email")
         name = claims.get("name") or email.split("@")[0]
         uid = store.add_user(name, email)  # upsert (auto-provision)
-        return {"id": uid, "email": email, "name": name}
+        # Owner-only admin: promote on ADMIN_EMAILS match; never demote.
+        if email.lower() in config.admin_emails():
+            store.set_user_role(email, "admin")
+        row = store.get_user(email)
+        role = row["role"] if row else "human"
+        return {"id": uid, "email": email, "name": name, "role": role}
 
     return current_user
 
@@ -53,6 +59,11 @@ def _make_current_user(store: Store, verifier: Verifier):
 def add_dashboard_routes(app: FastAPI, store: Store, verifier: Verifier) -> None:
     current_user = _make_current_user(store, verifier)
     router = APIRouter(prefix="/api")
+
+    def require_admin(user: dict = Depends(current_user)) -> dict[str, Any]:
+        if user.get("role") != "admin":
+            raise HTTPException(status_code=403, detail="admin only")
+        return user
 
     def _topic_or_404(slug: str):
         topic = store.get_topic(slug)
@@ -109,7 +120,7 @@ def add_dashboard_routes(app: FastAPI, store: Store, verifier: Verifier) -> None
         return {"ok": True}
 
     @router.post("/topics/{slug}/discover")
-    def discover(slug: str, user: dict = Depends(current_user)) -> dict[str, Any]:
+    def discover(slug: str, user: dict = Depends(require_admin)) -> dict[str, Any]:
         from .brave import DiscoveryError
         from .discovery import discover_sources
 
@@ -120,7 +131,7 @@ def add_dashboard_routes(app: FastAPI, store: Store, verifier: Verifier) -> None
             raise HTTPException(status_code=400, detail=str(exc))
 
     @router.post("/topics/{slug}/collect")
-    def collect_topic(slug: str, user: dict = Depends(current_user)) -> dict[str, Any]:
+    def collect_topic(slug: str, user: dict = Depends(require_admin)) -> dict[str, Any]:
         from .collect import collect as run_collect
 
         _topic_or_404(slug)
@@ -128,7 +139,7 @@ def add_dashboard_routes(app: FastAPI, store: Store, verifier: Verifier) -> None
 
     @router.get("/topics/{slug}/sources")
     def sources(
-        slug: str, status: str = "active", user: dict = Depends(current_user)
+        slug: str, status: str = "active", user: dict = Depends(require_admin)
     ) -> dict[str, Any]:
         if status == "candidate":
             rows = store.list_candidates(slug)
@@ -148,12 +159,12 @@ def add_dashboard_routes(app: FastAPI, store: Store, verifier: Verifier) -> None
         }
 
     @router.post("/sources/{source_id}/approve")
-    def approve(source_id: int, user: dict = Depends(current_user)) -> dict[str, Any]:
+    def approve(source_id: int, user: dict = Depends(require_admin)) -> dict[str, Any]:
         store.set_source_status(source_id, "active")
         return {"ok": True}
 
     @router.post("/sources/{source_id}/reject")
-    def reject(source_id: int, user: dict = Depends(current_user)) -> dict[str, Any]:
+    def reject(source_id: int, user: dict = Depends(require_admin)) -> dict[str, Any]:
         store.set_source_status(source_id, "rejected")
         return {"ok": True}
 
@@ -228,7 +239,7 @@ def add_dashboard_routes(app: FastAPI, store: Store, verifier: Verifier) -> None
         }
 
     @router.post("/topics/{slug}/brief")
-    def generate_brief(slug: str, user: dict = Depends(current_user)) -> dict[str, Any]:
+    def generate_brief(slug: str, user: dict = Depends(require_admin)) -> dict[str, Any]:
         """Generate (Haiku) + persist a topic's brief now. Admin/test affordance."""
         from .brief import build_brief
 

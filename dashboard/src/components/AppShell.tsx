@@ -14,6 +14,7 @@ const NAV = [
 
 export function AppShell() {
   const profile = useAuth((s) => s.profile);
+  const isAdmin = profile?.user.role === "admin";
 
   return (
     <div className="app">
@@ -34,12 +35,14 @@ export function AppShell() {
           ))}
         </nav>
         <div className="topbar-right">
-          <NavLink
-            to="/admin/topics"
-            className={({ isActive }) => `nav-link${isActive ? " active" : ""}`}
-          >
-            Admin
-          </NavLink>
+          {isAdmin && (
+            <NavLink
+              to="/admin/topics"
+              className={({ isActive }) => `nav-link${isActive ? " active" : ""}`}
+            >
+              Admin
+            </NavLink>
+          )}
           <NavLink
             to="/settings"
             className={({ isActive }) => `nav-link${isActive ? " active" : ""}`}

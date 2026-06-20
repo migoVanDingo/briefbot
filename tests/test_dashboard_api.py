@@ -56,6 +56,30 @@ def test_topics_create_subscribe_flag():
     assert c.get("/api/topics", headers=AUTH).json()["topics"][0]["subscribed"] is False
 
 
+def test_admin_routes_require_admin():
+    store = Store(":memory:", check_same_thread=False)
+    c = _client(store)
+    c.get("/api/me", headers=AUTH)  # provisions a regular (non-admin) user
+    store.add_topic("crypto", "Crypto")
+
+    # /api/me reports the role; default is non-admin
+    assert c.get("/api/me", headers=AUTH).json()["user"]["role"] == "human"
+
+    # curation routes are gated → 403 for a non-admin
+    assert c.get("/api/topics/crypto/sources", headers=AUTH).status_code == 403
+    assert c.post("/api/topics/crypto/discover", headers=AUTH).status_code == 403
+    assert c.post("/api/sources/1/approve", headers=AUTH).status_code == 403
+    assert c.post("/api/topics/crypto/brief", headers=AUTH).status_code == 403
+
+    # open routes stay accessible to a non-admin
+    assert c.get("/api/headlines", headers=AUTH).status_code == 200
+
+    # promote (the only path is ADMIN_EMAILS in prod; here we set the role directly)
+    store.set_user_role("me@example.com", "admin")
+    assert c.get("/api/me", headers=AUTH).json()["user"]["role"] == "admin"
+    assert c.get("/api/topics/crypto/sources", headers=AUTH).status_code == 200
+
+
 def test_subscribe_unknown_topic_404():
     c = _client(Store(":memory:", check_same_thread=False))
     c.get("/api/me", headers=AUTH)
@@ -74,6 +98,7 @@ def test_sources_list_approve_and_empty_collect():
     store = Store(":memory:", check_same_thread=False)
     c = _client(store)
     c.get("/api/me", headers=AUTH)
+    store.set_user_role("me@example.com", "admin")  # curation routes are admin-only
     tid = store.add_topic("crypto", "Crypto")
     sid = store.add_source("rss", "https://x/feed", "X", status="candidate")
     store.link_topic_source(tid, sid)

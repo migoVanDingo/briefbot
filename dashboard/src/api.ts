@@ -21,7 +21,7 @@ async function req<T>(path: string, opts: RequestInit = {}): Promise<T> {
 }
 
 export interface Me {
-  user: { id: number; email: string; name: string };
+  user: { id: number; email: string; name: string; role: string };
   settings: { email_enabled: boolean; digest_limit: number };
   subscriptions: string[];
 }

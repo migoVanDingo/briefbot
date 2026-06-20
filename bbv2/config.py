@@ -57,6 +57,13 @@ def firebase_config_path() -> str | None:
     return os.getenv("FIREBASE_CONFIG") or None
 
 
+def admin_emails() -> set[str]:
+    """Owner-only admin allowlist (lowercased). The ONLY way to grant admin —
+    there is no API/UI/CLI to promote users. Set `ADMIN_EMAILS` in `.env`."""
+    raw = os.getenv("ADMIN_EMAILS", "")
+    return {e.strip().lower() for e in raw.split(",") if e.strip()}
+
+
 def mailgun_config() -> dict[str, str] | None:
     """Mailgun settings if fully configured, else None (→ use LogNotifier).
 

@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Routes, Route } from "react-router-dom";
+import { Routes, Route, Navigate } from "react-router-dom";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth } from "./firebase";
 import { api } from "./api";
@@ -16,6 +16,13 @@ import { TopicsHome } from "./pages/TopicsHome";
 import { Topics } from "./pages/admin/Topics";
 import { TopicDetail } from "./pages/admin/TopicDetail";
 import { Settings } from "./pages/Settings";
+
+// Gate the admin area: non-admins are redirected to Headlines. (Enforcement is
+// on the backend via require_admin; this just hides the unreachable UI.)
+function RequireAdmin({ children }: { children: JSX.Element }) {
+  const role = useAuth((s) => s.profile?.user.role);
+  return role === "admin" ? children : <Navigate to="/headlines" replace />;
+}
 
 export default function App() {
   const status = useAuth((s) => s.status);
@@ -54,9 +61,23 @@ export default function App() {
             <Route path="favorites" element={<Favorites />} />
             <Route path="topics" element={<TopicsHome />} />
             <Route path="settings" element={<Settings />} />
-            {/* Admin — source curation (relocated; role-gating is a later plan) */}
-            <Route path="admin/topics" element={<Topics />} />
-            <Route path="admin/topics/:slug" element={<TopicDetail />} />
+            {/* Admin — source curation, gated to admins (backend enforces 403) */}
+            <Route
+              path="admin/topics"
+              element={
+                <RequireAdmin>
+                  <Topics />
+                </RequireAdmin>
+              }
+            />
+            <Route
+              path="admin/topics/:slug"
+              element={
+                <RequireAdmin>
+                  <TopicDetail />
+                </RequireAdmin>
+              }
+            />
           </Route>
         </Routes>
       )}
