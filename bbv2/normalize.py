@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from .ids import ITEM, new_id
 from .util import (
     canonicalize_url,
     normalize_text,
@@ -50,7 +51,10 @@ def _base_item(
     fetched_at = utc_now_iso()
 
     dedupe_key = _dedupe_key(source_id, canonical_url, title, source_name, published_iso)
-    item_id = stable_hash(source_id, canonical_url or "", dedupe_key)
+    # Surrogate PK: a fresh prefixed ULID. Identity/dedupe is carried by
+    # dedupe_key (UNIQUE), so the PK need not be content-derived — upsert_item
+    # returns the canonical id for a duplicate.
+    item_id = new_id(ITEM)
 
     return {
         "item_id": item_id,

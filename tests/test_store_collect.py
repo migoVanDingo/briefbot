@@ -27,11 +27,14 @@ def test_topic_source_item_flow():
     items = _items(src)
     for it in items:
         it["score"] = compute_score(it)
-        assert store.upsert_item(it) is True
-        store.map_item_topic(it["item_id"], tid)
+        item_id, inserted = store.upsert_item(it)
+        assert inserted is True
+        store.map_item_topic(item_id, tid)
 
-    # Re-inserting a duplicate is ignored.
-    assert store.upsert_item(items[0]) is False
+    # Re-inserting a duplicate is ignored; it returns the existing canonical id.
+    existing_id, inserted = store.upsert_item(items[0])
+    assert inserted is False
+    assert existing_id == items[0]["item_id"]
 
     rows = store.items_for_topic("crypto", limit=10)
     assert len(rows) == 2

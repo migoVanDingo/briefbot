@@ -76,9 +76,9 @@ def collect(
                 continue
             for item in items:
                 item["score"] = compute_score(item, source_weight=row["weight"])
-                inserted = store.upsert_item(item)
+                item_id, inserted = store.upsert_item(item)
                 for tid in topic_ids:
-                    store.map_item_topic(item["item_id"], tid)
+                    store.map_item_topic(item_id, tid)
                 stats["items"] += 1
                 if inserted:
                     stats["new"] += 1

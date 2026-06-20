@@ -300,8 +300,14 @@ class Store:
         return {r["url"] for r in rows}
 
     # ---- items ----
-    def upsert_item(self, item: dict[str, Any]) -> bool:
-        """Insert an item; returns True if newly inserted, False if a duplicate."""
+    def upsert_item(self, item: dict[str, Any]) -> tuple[str, bool]:
+        """Insert an item, deduping by ``dedupe_key`` (UNIQUE).
+
+        Returns ``(item_id, inserted)`` where ``item_id`` is the canonical id in
+        the DB — the *existing* row's id on a duplicate, the new id on insert.
+        Callers map topics with the returned id (not ``item["item_id"]``), since
+        the PK is a fresh ULID that won't match the stored row on a duplicate.
+        """
         cur = self.conn.execute(
             """INSERT OR IGNORE INTO items
                (item_id, dedupe_key, canonical_url, source_id, source_name, title,
@@ -323,7 +329,12 @@ class Store:
             ),
         )
         self.conn.commit()
-        return cur.rowcount == 1
+        if cur.rowcount == 1:
+            return item["item_id"], True
+        row = self.conn.execute(
+            "SELECT item_id FROM items WHERE dedupe_key = ?", (item["dedupe_key"],)
+        ).fetchone()
+        return (row["item_id"] if row else item["item_id"]), False
 
     def map_item_topic(self, item_id: str, topic_id: int) -> None:
         self.conn.execute(

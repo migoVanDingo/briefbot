@@ -87,16 +87,23 @@ the moved admin UI.
 **Done:** every new route renders (stubs OK), the old Topics/source-approval UI
 works unchanged at `/admin/topics`, light accent is blue.
 
-## Phase 2 — Prefixed ID layer (decision B)
+## Phase 2 — Prefixed ID layer (decision B) ✅ code (2026-06-19)
 
-- [ ] **2.1** `bbv2/ids.py` — Crockford-base32 ULID + `new_id(prefix)` minting
-      `<PREFIX><ULID>` (e.g. `SRC01J9…`); prefix constants per the table above.
-      Unit test: sortability + uniqueness + correct prefix.
-- [ ] **2.2** Repoint `item_id` generation (normalize/store) to `ITM…`; keep
-      `dedupe_key` and the upsert-by-dedupe_key path intact.
-- [ ] **2.3** `rm -rf data/` + reseed; verify collect still dedupes.
+- [x] **2.1** `bbv2/ids.py` — hand-rolled Crockford-base32 ULID (48-bit time +
+      80-bit random, no dep) + `new_id(prefix)` minting `<PREFIX><ULID>` (e.g.
+      `SRC01J9…`); prefix constants (`ITM/SRC/TOP/CLU/FAV/FLD/CON/MSG/USR/BRF`).
+      `tests/test_ids.py`: shape/charset, prefix, uniqueness, time-sortability.
+- [x] **2.2** `item_id` now `new_id(ITEM)` (`bbv2/normalize.py`). Dedupe is by
+      `dedupe_key` (UNIQUE) — `store.upsert_item` now returns `(item_id, inserted)`
+      with the **canonical** id (existing row's on a duplicate) so `collect` maps
+      topics correctly; updated `collect.py` + tests. `pytest` 33 green.
+- [~] **2.3** DB wipe **deferred to user's call** — `data/bbv2.db` holds real state
+      (1 topic, 19 approved sources, 363 items). Wipe is **not required**: old hash
+      IDs and new ULIDs coexist (dedupe unaffected). Keep = no loss, only new items
+      get ULIDs; wipe = clean slate but re-discover/approve/collect + re-login.
 
-**Done when:** new items carry `itm_…` PKs, dedupe still works, tests pass.
+**Done:** new items carry `ITM…` ULID PKs, dedupe still works, tests pass. Existing
+rows keep their legacy hash IDs unless the DB is wiped.
 
 ## Phase 3 — Stories (DB browser): backend + page
 

@@ -22,9 +22,12 @@ def test_normalize_feed_entry_basic():
     assert item["published_at"].endswith("+00:00")
 
 
-def test_dedupe_key_and_item_id_are_stable():
+def test_dedupe_key_stable_item_id_is_a_fresh_prefixed_ulid():
+    # dedupe_key is content-derived (stable); item_id is a fresh ULID PK each call.
     src = {"id": "1", "name": "Sample"}
     a = normalize_feed_entry(src, dict(_entries()[0]))
     b = normalize_feed_entry(src, dict(_entries()[0]))
     assert a["dedupe_key"] == b["dedupe_key"]
-    assert a["item_id"] == b["item_id"]
+    assert a["item_id"] != b["item_id"]
+    assert a["item_id"].startswith("ITM")
+    assert len(a["item_id"]) == 3 + 26
