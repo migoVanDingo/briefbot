@@ -305,6 +305,27 @@ def cmd_digest(args: argparse.Namespace) -> None:
     store.close()
 
 
+def cmd_tick(_: argparse.Namespace) -> None:
+    """Decoupled pull engine: due-based source discovery + story collection +
+    relevance quickscan. Run hourly by cron."""
+    from .scheduler import tick
+
+    store = _store()
+    print(json.dumps(tick(store), indent=2))
+    store.close()
+
+
+def cmd_nightly(args: argparse.Namespace) -> None:
+    """Build subscribed topics' briefs and email subscribers. Run nightly (11pm)."""
+    from .notify import default_notifier
+    from .nightly import run_nightly
+
+    store = _store()
+    stats = run_nightly(store, default_notifier(dry_run=args.dry_run))
+    print(json.dumps(stats, indent=2))
+    store.close()
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="bbv2")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -413,6 +434,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_quickscan = sub.add_parser("quickscan")
     p_quickscan.add_argument("--topic", help="slug; omit to scan all topics")
     p_quickscan.set_defaults(func=cmd_quickscan)
+
+    sub.add_parser("tick").set_defaults(func=cmd_tick)
+
+    p_nightly = sub.add_parser("nightly")
+    p_nightly.add_argument("--dry-run", action="store_true", dest="dry_run")
+    p_nightly.set_defaults(func=cmd_nightly)
 
     return parser
 

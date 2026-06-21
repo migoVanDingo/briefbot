@@ -126,6 +126,34 @@ def build_brief(
     return brief
 
 
+def get_or_build_brief(
+    store: Store,
+    topic_slug: str,
+    *,
+    generate: Generate | None = None,
+    now: datetime | None = None,
+) -> Any | None:
+    """Return today's brief for a topic, building it **once** if missing.
+
+    This is the on-demand "topic rundown": the first visitor that day triggers the
+    synthesis; every later visitor (any user) reads the cached `(topic_id, date)`
+    row. Returns the brief dict (built) or the existing brief row, or None if the
+    topic has no recent items to summarize."""
+    topic = store.get_topic(topic_slug)
+    if not topic:
+        raise ValueError(f"unknown topic '{topic_slug}'")
+    now = now or datetime.now(timezone.utc)
+    date = now.date().isoformat()
+    existing = store.get_brief(int(topic["id"]), date)
+    if existing is not None:
+        return existing
+    built = build_brief(store, topic_slug, date=date, generate=generate, now=now)
+    if built is None:
+        return None
+    # Return the persisted row so callers always get a uniform shape.
+    return store.get_brief(int(topic["id"]), date)
+
+
 def build_all_briefs(
     store: Store,
     *,

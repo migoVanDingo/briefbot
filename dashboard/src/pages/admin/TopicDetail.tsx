@@ -11,6 +11,13 @@ import { timeAgo } from "../../lib/format";
 import { LoadingBanner } from "../../components/LoadingBanner";
 import { DISCOVER_PHRASES, COLLECT_PHRASES } from "../../lib/phrases";
 
+const PRESETS = [
+  { label: "Hourly", min: 60 },
+  { label: "Daily", min: 1440 },
+  { label: "Weekly", min: 10080 },
+  { label: "Monthly", min: 43200 },
+];
+
 export function TopicDetail() {
   const { slug = "" } = useParams();
   const push = useToasts((s) => s.push);
@@ -21,21 +28,48 @@ export function TopicDetail() {
   const [discovering, setDiscovering] = useState(false);
   const [collecting, setCollecting] = useState(false);
   const [briefing, setBriefing] = useState(false);
+  const [discoverMin, setDiscoverMin] = useState("");
+  const [collectMin, setCollectMin] = useState("");
 
   const load = useCallback(async () => {
     try {
-      const [a, c, it] = await Promise.all([
+      const [a, c, it, topics] = await Promise.all([
         api.sources(slug, "active"),
         api.sources(slug, "candidate"),
         api.topicItems(slug, 30),
+        api.topics(),
       ]);
       setActive(a);
       setCandidates(c);
       setItems(it);
+      const t = topics.find((x) => x.slug === slug);
+      setDiscoverMin(t?.discover_interval_min ? String(t.discover_interval_min) : "");
+      setCollectMin(t?.collect_interval_min ? String(t.collect_interval_min) : "");
     } catch (e) {
       push(String(e), "error");
     }
   }, [slug, push]);
+
+  const saveTopicCadence = async () => {
+    try {
+      await api.setTopicCadence(slug, {
+        discover_interval_min: discoverMin ? Number(discoverMin) : null,
+        collect_interval_min: collectMin ? Number(collectMin) : null,
+      });
+      push("Cadence saved", "success");
+    } catch (e) {
+      push(String(e), "error");
+    }
+  };
+
+  const saveSourceCadence = async (id: number, value: string) => {
+    try {
+      await api.setSourceCadence(id, value ? Number(value) : null);
+      push("Source cadence saved", "success");
+    } catch (e) {
+      push(String(e), "error");
+    }
+  };
 
   useEffect(() => {
     load();
@@ -150,6 +184,69 @@ export function TopicDetail() {
       {discovering && <LoadingBanner phrases={DISCOVER_PHRASES} />}
       {collecting && <LoadingBanner phrases={COLLECT_PHRASES} />}
 
+      <section className="section">
+        <h2 className="section-title">Cadence</h2>
+        <p className="muted small">
+          How often the scheduler discovers new sources and collects stories for
+          this topic. Blank = default. Per-source overrides win.
+        </p>
+        <div className="cadence-row">
+          <label className="cadence-field">
+            Discover new sources every
+            <span className="cadence-input">
+              <input
+                type="number"
+                min={0}
+                value={discoverMin}
+                onChange={(e) => setDiscoverMin(e.target.value)}
+                placeholder="default"
+              />
+              min
+            </span>
+            <span className="cadence-presets">
+              {PRESETS.map((p) => (
+                <button
+                  key={p.min}
+                  type="button"
+                  className="chip-btn"
+                  onClick={() => setDiscoverMin(String(p.min))}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </span>
+          </label>
+          <label className="cadence-field">
+            Collect stories every
+            <span className="cadence-input">
+              <input
+                type="number"
+                min={0}
+                value={collectMin}
+                onChange={(e) => setCollectMin(e.target.value)}
+                placeholder="default"
+              />
+              min
+            </span>
+            <span className="cadence-presets">
+              {PRESETS.map((p) => (
+                <button
+                  key={p.min}
+                  type="button"
+                  className="chip-btn"
+                  onClick={() => setCollectMin(String(p.min))}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </span>
+          </label>
+          <button className="btn primary" onClick={saveTopicCadence}>
+            Save cadence
+          </button>
+        </div>
+      </section>
+
       {candidates.length > 0 && (
         <section className="section">
           <div className="section-head">
@@ -204,6 +301,17 @@ export function TopicDetail() {
                   <div className="list-title">{s.name}</div>
                   <div className="muted small">{s.url}</div>
                 </div>
+                <label className="cadence-input src-cadence" title="Collect every (min); blank = topic default">
+                  every
+                  <input
+                    type="number"
+                    min={0}
+                    defaultValue={s.collect_interval_min ?? ""}
+                    placeholder="default"
+                    onBlur={(e) => saveSourceCadence(s.id, e.target.value)}
+                  />
+                  min
+                </label>
               </li>
             ))}
           </ul>

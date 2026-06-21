@@ -22,6 +22,7 @@ export function TopicsHome() {
   const [description, setDescription] = useState("");
   const [provisioning, setProvisioning] = useState<string | null>(null);
   const [stage, setStage] = useState<string | null>(null);
+  const [failedStage, setFailedStage] = useState<string | null>(null);
 
   const load = () =>
     api.topics().then(setTopics).catch((e) => push(String(e), "error"));
@@ -67,13 +68,28 @@ export function TopicsHome() {
       setDescription("");
       setProvisioning(res.slug);
       setStage(null);
+      setFailedStage(null);
+      let lastStage: string | null = null;
+      let didFail = false;
       await api.provisionTopic(res.slug, (ev) => {
-        if (ev.type === "stage") setStage(ev.stage as string);
-        else if (ev.type === "error") push(String(ev.message), "error");
+        if (ev.type === "stage") {
+          lastStage = ev.stage as string;
+          setStage(lastStage);
+        } else if (ev.type === "error") {
+          didFail = true;
+          push(String(ev.message), "error");
+        }
       });
-      push(`"${res.slug}" is ready — subscribe below.`, "success");
+      if (didFail) {
+        setFailedStage(lastStage ?? "discovering");
+      } else {
+        // Auto-subscribe to the freshly provisioned topic; user can unsubscribe below.
+        await api.subscribe(res.slug).catch(() => {});
+        push(`"${res.slug}" is ready — you're subscribed.`, "success");
+      }
     } catch (err) {
       // moderation 422 reason, rate-limit 429, etc. surface here
+      setFailedStage((s) => s ?? stage ?? "discovering");
       push(String(err).replace(/^Error:\s*/, ""), "error");
     } finally {
       setProvisioning(null);
@@ -113,7 +129,7 @@ export function TopicsHome() {
         </button>
       </form>
 
-      {provisioning && (
+      {provisioning ? (
         <div className="card">
           <div className="muted small">
             Setting up <b>{provisioning}</b> — finding sources and gathering stories…
@@ -121,6 +137,13 @@ export function TopicsHome() {
           <ProvisionPipeline stage={stage} />
           <LoadingBanner phrases={DISCOVER_PHRASES} />
         </div>
+      ) : (
+        failedStage && (
+          <div className="card">
+            <div className="muted small">Setup failed — see the error above.</div>
+            <ProvisionPipeline stage={failedStage} failed />
+          </div>
+        )
       )}
 
       {topics === null ? (

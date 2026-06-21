@@ -12,8 +12,9 @@ from typing import Any, Callable
 from fastapi import APIRouter, Body, Depends, FastAPI, Header, HTTPException
 from fastapi.responses import StreamingResponse
 
-from . import config
+from . import config, usage
 from .api import _bearer, _item_dict
+from .dashboard_favorites import add_favorite_routes
 from .moderation import ModerationError, moderate_topic, sanitize_name
 from .ratelimit import limiter
 from .store import Store
@@ -21,6 +22,16 @@ from .util import titlecase
 
 Verifier = Callable[[str], dict[str, Any]]
 MAX_LIMIT = 200
+
+
+def _opt_int(v: Any) -> int | None:
+    """Parse an optional integer field; '' / None / junk → None (clear override)."""
+    if v is None or v == "":
+        return None
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return None
 
 
 def _serialize_brief(topic_row: Any, brief_row: Any) -> dict[str, Any]:
@@ -86,6 +97,21 @@ def add_dashboard_routes(
                 headers={"Retry-After": str(int(retry) + 1)},
             )
 
+    def _rate_limited(user: dict = Depends(current_user)) -> dict[str, Any]:
+        """Router-wide general per-user rate limit (every `/api/*` route).
+        `current_user` is dependency-cached, so this reuses the same auth result."""
+        _enforce_rate("api", user["id"], config.ratelimit_default())
+        return user
+
+    def _enforce_budget(user_id: int) -> None:
+        status = usage.budget_status(store, user_id)
+        if not status["allowed"]:
+            raise HTTPException(
+                status_code=429,
+                detail=status["message"],
+                headers={"Retry-After": str(int(status["resets_in"]) + 1)},
+            )
+
     def _topic_or_404(slug: str):
         topic = store.get_topic(slug)
         if not topic:
@@ -94,8 +120,19 @@ def add_dashboard_routes(
 
     @router.get("/me")
     def me(user: dict = Depends(current_user)) -> dict[str, Any]:
+        from .agent import GREETING
+
         s = store.get_user_settings(user["id"])
         subs = [t["slug"] for t in store.user_subscriptions(user["id"])]
+        onboarded = bool(s["onboarded_at"])
+        # Onboarding completes when the user RETURNS with topics set up. `/me` is
+        # fetched once per session (on auth), so a first session — where they had no
+        # topics at login — stays "not onboarded" the whole time, letting every
+        # topic they add build the first Headlines. From the next session on, they're
+        # onboarded and new topics defer to nightly + on-demand rundowns.
+        if subs and not onboarded:
+            store.mark_onboarded(user["id"])
+            onboarded = True
         return {
             "user": user,
             "settings": {
@@ -103,11 +140,35 @@ def add_dashboard_routes(
                 "digest_limit": s["digest_limit"],
             },
             "subscriptions": subs,
+            "onboarded": onboarded,
+            "greeting": GREETING,
+        }
+
+    @router.post("/me/onboarded")
+    def set_onboarded(user: dict = Depends(current_user)) -> dict[str, Any]:
+        """Mark the first-visit onboarding tour complete (one-time)."""
+        store.mark_onboarded(user["id"])
+        return {"ok": True}
+
+    @router.get("/usage")
+    def get_usage(user: dict = Depends(current_user)) -> dict[str, Any]:
+        """The signed-in user's token spend over the budget window, for the chat
+        sidebar counter. A single per-user daily budget (system work excluded)."""
+        st = usage.budget_status(store, user["id"])
+        return {
+            "interactions": st["interactions"],
+            "tokens_used": st["used"],
+            "limit": st["limit"],
+            "window_s": st["window_s"],
+            "resets_in": int(st["resets_in"]),
+            "enabled": config.token_budget()["enabled"],
+            "blocked": not st["allowed"],
         }
 
     @router.get("/topics")
     def topics(user: dict = Depends(current_user)) -> dict[str, Any]:
         subs = {t["slug"] for t in store.user_subscriptions(user["id"])}
+        is_admin = user.get("role") == "admin"
         return {
             "topics": [
                 {
@@ -115,6 +176,16 @@ def add_dashboard_routes(
                     "name": t["name"],
                     "description": t["description"],
                     "subscribed": t["slug"] in subs,
+                    # Cadence is admin-only context for the cadence controls.
+                    **(
+                        {
+                            "discover_interval_min": t["discover_interval_min"],
+                            "collect_interval_min": t["collect_interval_min"],
+                            "last_discovered_at": t["last_discovered_at"],
+                        }
+                        if is_admin
+                        else {}
+                    ),
                 }
                 for t in store.list_topics()
             ]
@@ -125,6 +196,7 @@ def add_dashboard_routes(
         body: dict = Body(...), user: dict = Depends(current_user)
     ) -> dict[str, Any]:
         _enforce_rate("create", user["id"], config.ratelimit_topic_create())
+        _enforce_budget(user["id"])
         try:
             clean = moderate_topic(
                 body.get("slug") or "",
@@ -146,10 +218,21 @@ def add_dashboard_routes(
         from .provision import provision_topic
 
         _enforce_rate("provision", user["id"], config.ratelimit_provision())
+        _enforce_budget(user["id"])
         _topic_or_404(slug)
+        review_generate = usage.metered_relevance_generate(store, user["id"], "provision")
+        # Build the first brief only during the initial setup window (account age);
+        # afterwards nightly + on-demand rundowns cover new topics (no per-add cost).
+        brief_generate = (
+            usage.metered_generate(store, usage.SYSTEM_USER_ID, "rundown")
+            if store.is_recent_user(user["id"], config.onboard_brief_window_min() * 60)
+            else None
+        )
 
         def gen():
-            for ev in provision_topic(store, slug):
+            for ev in provision_topic(
+                store, slug, review_generate=review_generate, brief_generate=brief_generate
+            ):
                 yield f"data: {json.dumps(ev)}\n\n"
 
         return StreamingResponse(gen(), media_type="text/event-stream")
@@ -198,6 +281,8 @@ def add_dashboard_routes(
                     "url": s["url"],
                     "type": s["type"],
                     "status": s["status"],
+                    "collect_interval_min": s["collect_interval_min"],
+                    "last_collected_at": s["last_collected_at"],
                 }
                 for s in rows
             ]
@@ -298,94 +383,46 @@ def add_dashboard_routes(
             raise HTTPException(status_code=400, detail="no recent items to summarize")
         return {"ok": True, "title": b["title"]}
 
-    @router.get("/favorites/folders")
-    def favorite_folders(user: dict = Depends(current_user)) -> dict[str, Any]:
-        rows = store.list_folders(user["id"])
-        if not rows:  # always surface at least the default folder
-            store.ensure_default_folder(user["id"])
-            rows = store.list_folders(user["id"])
-        return {
-            "folders": [
-                {"id": r["id"], "name": r["name"], "count": r["count"]} for r in rows
-            ]
-        }
+    @router.post("/topics/{slug}/rundown")
+    def topic_rundown(slug: str, user: dict = Depends(current_user)) -> dict[str, Any]:
+        """On-demand topic rundown — built once per topic/day, then shared. The
+        first visitor that day triggers synthesis; later visitors read the cache.
+        Metered to the system bucket (shared artifact, not the unlucky viewer)."""
+        from .brief import get_or_build_brief
 
-    @router.post("/favorites/folders")
-    def create_folder(
-        body: dict = Body(...), user: dict = Depends(current_user)
-    ) -> dict[str, Any]:
-        name = sanitize_name(body.get("name") or "")
-        if not name:
-            raise HTTPException(status_code=400, detail="name required")
-        fid = store.create_folder(user["id"], name)  # store Title-cases it
-        return {"ok": True, "id": fid, "name": titlecase(name)}
+        topic = _topic_or_404(slug)
+        gen = usage.metered_generate(store, usage.SYSTEM_USER_ID, "rundown")
+        try:
+            row = get_or_build_brief(store, slug, generate=gen)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        if row is None:
+            return {"rundown": None, "reason": "no recent items to summarize"}
+        return {"rundown": _serialize_brief(topic, row)}
 
-    @router.get("/favorites/search")
-    def favorite_search(
-        q: str = "", user: dict = Depends(current_user)
+    @router.patch("/topics/{slug}/cadence")
+    def set_topic_cadence(
+        slug: str, body: dict = Body(...), user: dict = Depends(require_admin)
     ) -> dict[str, Any]:
-        rows = store.search_favorites(user["id"], q)
-        return {
-            "items": [
-                {
-                    "id": r["id"],
-                    "item_id": r["item_id"],
-                    "title": r["title"],
-                    "url": r["url"],
-                }
-                for r in rows
-            ]
-        }
-
-    @router.get("/favorites/items")
-    def favorite_items(
-        folder_id: str = "", user: dict = Depends(current_user)
-    ) -> dict[str, Any]:
-        fid = folder_id or store.ensure_default_folder(user["id"])
-        folder = store.get_folder(user["id"], fid)
-        if not folder:
-            raise HTTPException(status_code=404, detail="unknown folder")
-        rows = store.list_favorites(user["id"], fid)
-        return {
-            "folder": {"id": folder["id"], "name": folder["name"]},
-            "items": [
-                {
-                    "id": r["id"],
-                    "item_id": r["item_id"],
-                    "title": r["title"],
-                    "url": r["url"],
-                }
-                for r in rows
-            ],
-        }
-
-    @router.post("/favorites/items")
-    def add_favorite(
-        body: dict = Body(...), user: dict = Depends(current_user)
-    ) -> dict[str, Any]:
-        title = (body.get("title") or "").strip()
-        url = (body.get("url") or "").strip()
-        if not title or not url:
-            raise HTTPException(status_code=400, detail="title and url required")
-        fid = (body.get("folder_id") or "").strip() or store.ensure_default_folder(
-            user["id"]
+        """Admin: per-topic source-discovery + story-collection cadence (minutes;
+        0/empty clears the override → default)."""
+        _topic_or_404(slug)
+        store.set_topic_cadence(
+            slug,
+            discover_interval_min=_opt_int(body.get("discover_interval_min")),
+            collect_interval_min=_opt_int(body.get("collect_interval_min")),
         )
-        if not store.get_folder(user["id"], fid):
-            raise HTTPException(status_code=404, detail="unknown folder")
-        row = store.add_favorite(
-            user["id"], fid, title, url, (body.get("item_id") or None)
-        )
-        return {"ok": True, "id": row["id"], "folder_id": fid}
-
-    @router.delete("/favorites/items")
-    def remove_favorite(
-        favorite_id: str = "", user: dict = Depends(current_user)
-    ) -> dict[str, Any]:
-        if not favorite_id:
-            raise HTTPException(status_code=400, detail="favorite_id required")
-        if not store.remove_favorite(user["id"], favorite_id):
-            raise HTTPException(status_code=404, detail="unknown favorite")
         return {"ok": True}
+
+    @router.patch("/sources/{source_id}/cadence")
+    def set_source_cadence(
+        source_id: int, body: dict = Body(...), user: dict = Depends(require_admin)
+    ) -> dict[str, Any]:
+        """Admin: per-source story-collection cadence override (minutes)."""
+        store.set_source_cadence(source_id, _opt_int(body.get("collect_interval_min")))
+        return {"ok": True}
+
+    add_favorite_routes(router, store, current_user)
 
     # ---- chat / conversations ----
     def _conv_dict(row: Any) -> dict[str, Any]:
@@ -459,12 +496,22 @@ def add_dashboard_routes(
         from .agent import run_chat_turn
 
         _conv_or_404(user["id"], cid)
+        _enforce_rate("chat", user["id"], config.ratelimit_chat())
         text = (body.get("content") or "").strip()
         if not text:
             raise HTTPException(status_code=400, detail="content required")
 
+        review_generate = usage.metered_relevance_generate(store, user["id"], "provision")
+
         def gen():
-            for ev in run_chat_turn(store, user["id"], cid, text):
+            for ev in run_chat_turn(
+                store,
+                user["id"],
+                cid,
+                text,
+                moderate_generate=moderate_generate,
+                review_generate=review_generate,
+            ):
                 yield f"data: {json.dumps(ev)}\n\n"
 
         return StreamingResponse(gen(), media_type="text/event-stream")
@@ -488,4 +535,4 @@ def add_dashboard_routes(
         )
         return {"ok": True}
 
-    app.include_router(router)
+    app.include_router(router, dependencies=[Depends(_rate_limited)])

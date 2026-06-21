@@ -44,6 +44,11 @@ python -m bbv2 settings show --user mom@example.com
 python -m bbv2 settings set --user mom@example.com --email-enabled true --digest-limit 15
 python -m bbv2 digest --dry-run     # LogNotifier; real Mailgun when MAILGUN_* set
 
+# Scheduling (0014) — two decoupled cron jobs:
+python -m bbv2 tick                 # hourly: due-based discovery + collection + quickscan
+python -m bbv2 nightly [--dry-run]  # 11pm: build subscribed-topic briefs + email "brief ready"
+#   cadence is admin-set per topic (discover/collect) + per source (collect override)
+
 # Source discovery (0004) — Brave web search → candidate feeds → human approval
 python -m bbv2 discover --topic crypto [--per-query 8] [--max 20]
 python -m bbv2 source candidates --topic crypto
@@ -60,7 +65,10 @@ python -m bbv2 serve --host 127.0.0.1 --port 8080
 pytest        # offline tests (no network)
 ```
 
-`scripts/collect.sh` is the hourly runner (cron/launchd on the server).
+Cron/launchd on the server runs **`bbv2 tick` hourly** (pulls) and **`bbv2 nightly`
+at 11pm** (briefs + email). LLM: Haiku for prose, **xAI Grok** for relevance
+(`GROK_API_KEY`, falls back to Haiku). Per-user budget `TOKEN_LIMIT` (default
+100k/day); background/shared LLM spend goes to a system bucket, not a user.
 
 ### Dashboard (frontend)
 
@@ -115,6 +123,9 @@ tests/           pytest (network-free; uses tests/fixtures/sample_feed.xml)
 - **Keep docs current as part of every feature task** (not a later TODO): update
   `_documentation/architecture.md` and `README.md` to match new behavior, and
   **prune** `_documentation/roadmap.md` (move shipped items out, keep what's left).
+- **Run `/code-review` after implementing a feature or any large change** (before
+  considering it done) — it catches correctness/concurrency bugs that tests miss.
+  Address its findings, then re-verify.
 
 ## Status / plans
 

@@ -10,6 +10,8 @@ from typing import Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 
+from . import config
+from .ratelimit import limiter
 from .store import Store
 
 MAX_LIMIT = 500
@@ -46,6 +48,16 @@ def create_app(store: Store) -> FastAPI:
         token = _bearer(authorization)
         if not token or store.get_token(token) is None:
             raise HTTPException(status_code=401, detail="invalid or missing token")
+        # Per-token rate limit (service accounts). /health is exempt — it never
+        # reaches here, so uptime monitoring stays unthrottled.
+        limit, window = config.ratelimit_consumer()
+        ok, retry = limiter.check(("consumer", token), limit=limit, window_s=window)
+        if not ok:
+            raise HTTPException(
+                status_code=429,
+                detail="Too many requests — slow down.",
+                headers={"Retry-After": str(int(retry) + 1)},
+            )
         return store.token_topic_slugs(token)
 
     @app.get("/health")

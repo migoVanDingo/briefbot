@@ -11,6 +11,7 @@ from typing import Any
 import requests
 
 from .config import brave_api_key
+from .httpclient import request_with_backoff
 
 BRAVE_ENDPOINT = "https://api.search.brave.com/res/v1/web/search"
 
@@ -31,11 +32,13 @@ def brave_search(
         raise DiscoveryError("BRAVESEARCH_API_KEY is not set")
     sess = session or requests.Session()
     try:
-        resp = sess.get(
-            BRAVE_ENDPOINT,
-            params={"q": query, "count": count},
-            headers={"X-Subscription-Token": key, "Accept": "application/json"},
-            timeout=timeout,
+        resp = request_with_backoff(
+            lambda: sess.get(
+                BRAVE_ENDPOINT,
+                params={"q": query, "count": count},
+                headers={"X-Subscription-Token": key, "Accept": "application/json"},
+                timeout=timeout,
+            )
         )
     except requests.RequestException as exc:
         raise DiscoveryError(f"Brave request failed: {exc}") from exc

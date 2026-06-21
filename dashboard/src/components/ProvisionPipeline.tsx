@@ -5,22 +5,38 @@ const STEPS = [
   { key: "approving", label: "Approve" },
   { key: "collecting", label: "Collect" },
   { key: "reviewing", label: "Review" },
+  { key: "summarizing", label: "Summarize" },
   { key: "ready", label: "Ready" },
 ];
 const ORDER = STEPS.map((s) => s.key);
 
-export function ProvisionPipeline({ stage }: { stage: string | null }) {
+export function ProvisionPipeline({
+  stage,
+  failed = false,
+}: {
+  stage: string | null;
+  failed?: boolean;
+}) {
   const current = stage ? ORDER.indexOf(stage) : -1;
   return (
     <div className="pipeline">
       {STEPS.map((s, i) => {
         const state =
-          current > i || (current === i && s.key === "ready")
+          current > i || (current === i && s.key === "ready" && !failed)
             ? "done"
             : current === i
-              ? "active"
+              ? failed
+                ? "failed"
+                : "active"
               : "wait";
-        const mark = state === "done" ? "✓" : state === "active" ? "●" : "○";
+        const mark =
+          state === "done"
+            ? "✓"
+            : state === "failed"
+              ? "✕"
+              : state === "active"
+                ? "●"
+                : "○";
         return (
           <div key={s.key} className="pipe-step">
             <span className={`pipe-chip ${state}`}>

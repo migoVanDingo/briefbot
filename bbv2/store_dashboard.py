@@ -198,3 +198,4 @@ class DashboardQueriesMixin:
             "SELECT * FROM briefs WHERE topic_id = ? ORDER BY date DESC LIMIT 1",
             (topic_id,),
         ).fetchone()
+

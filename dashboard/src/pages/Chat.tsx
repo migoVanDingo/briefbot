@@ -1,21 +1,55 @@
 import { useEffect, useRef, useState } from "react";
 import AddIcon from "@mui/icons-material/Add";
 import SendIcon from "@mui/icons-material/Send";
+import PersonIcon from "@mui/icons-material/PersonOutlined";
+import BotIcon from "@mui/icons-material/SmartToyOutlined";
 import {
   api,
   type ChatMessage,
   type ConversationMeta,
+  type UsageStats,
 } from "../api";
 import { useToasts } from "../state/toasts";
+import { useAuth } from "../state/auth";
+import { ProvisionPipeline } from "../components/ProvisionPipeline";
+import { LoadingBanner } from "../components/LoadingBanner";
+import { Markdown } from "../components/Markdown";
+import { DISCOVER_PHRASES, COLLECT_PHRASES } from "../lib/phrases";
+
+// The witty cycling phrases shown while a topic provisions in-chat (the best part).
+const PROVISION_PHRASES = [...DISCOVER_PHRASES, ...COLLECT_PHRASES];
+
+// Remember the last-opened conversation so returning to /chat restores it instead
+// of a blank new chat. Validated against the user's own list, so it's safe even if
+// browsers are shared (a stale/foreign id just falls back to the latest chat).
+const LAST_CHAT_KEY = "bbv2.lastChat";
+const readLastChat = (): string | null => {
+  try {
+    return localStorage.getItem(LAST_CHAT_KEY);
+  } catch {
+    return null;
+  }
+};
 
 export function Chat() {
   const push = useToasts((s) => s.push);
+  const greeting = useAuth((s) => s.profile?.greeting ?? "");
   const [convos, setConvos] = useState<ConversationMeta[]>([]);
   const [activeId, setActiveId] = useState<string>("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
+  const [usage, setUsage] = useState<UsageStats | null>(null);
   const threadEnd = useRef<HTMLDivElement>(null);
+
+  const rememberActive = (id: string) => {
+    setActiveId(id);
+    try {
+      localStorage.setItem(LAST_CHAT_KEY, id);
+    } catch {
+      /* private mode — non-critical */
+    }
+  };
 
   const loadConvos = async () => {
     try {
@@ -25,8 +59,29 @@ export function Chat() {
     }
   };
 
+  const loadUsage = async () => {
+    try {
+      setUsage(await api.usage());
+    } catch {
+      /* non-critical — counter just stays as-is */
+    }
+  };
+
   useEffect(() => {
-    loadConvos();
+    // Restore the last-accessed chat (or the most recent one) instead of a blank.
+    (async () => {
+      let list: ConversationMeta[] = [];
+      try {
+        list = await api.listConversations();
+        setConvos(list);
+      } catch (e) {
+        push(String(e), "error");
+      }
+      const lastId = readLastChat();
+      const restore = list.find((c) => c.id === lastId) ?? list[0];
+      if (restore) select(restore.id);
+    })();
+    loadUsage();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -35,7 +90,7 @@ export function Chat() {
   }, [messages]);
 
   const select = async (id: string) => {
-    setActiveId(id);
+    rememberActive(id);
     setMessages([]);
     try {
       const c = await api.getConversation(id);
@@ -49,7 +104,7 @@ export function Chat() {
     try {
       const c = await api.createConversation();
       await loadConvos();
-      setActiveId(c.id);
+      rememberActive(c.id);
       setMessages([]);
     } catch (e) {
       push(String(e), "error");
@@ -65,7 +120,7 @@ export function Chat() {
     if (!cid) {
       try {
         cid = (await api.createConversation()).id;
-        setActiveId(cid);
+        rememberActive(cid);
       } catch (err) {
         push(String(err), "error");
         return;
@@ -108,6 +163,15 @@ export function Chat() {
             }
             return { ...m, tool_calls: tc };
           });
+        } else if (type === "topic_stage") {
+          patchLast((m) => ({
+            ...m,
+            topic: {
+              slug: ev.slug as string,
+              stage: (ev.stage as string) ?? null,
+              failed: Boolean(ev.failed),
+            },
+          }));
         } else if (type === "title") {
           setConvos((cs) =>
             cs.map((c) => (c.id === cid ? { ...c, title: ev.title as string } : c)),
@@ -121,6 +185,7 @@ export function Chat() {
     } finally {
       setSending(false);
       loadConvos();
+      loadUsage();
     }
   };
 
@@ -146,29 +211,108 @@ export function Chat() {
               <li className="muted small pad">No chats yet.</li>
             )}
           </ul>
+          {usage && (
+            <div className="usage-meter">
+              <div className="usage-row">
+                <span>Interactions</span>
+                <b>{usage.interactions}</b>
+              </div>
+              {usage.enabled && (
+                <>
+                  <div className="usage-row">
+                    <span>Tokens today</span>
+                    <b>
+                      {usage.tokens_used.toLocaleString()} /{" "}
+                      {usage.limit.toLocaleString()}
+                    </b>
+                  </div>
+                  <div className="usage-bar">
+                    <span
+                      className={`usage-fill${usage.blocked ? " over" : ""}`}
+                      style={{
+                        width: `${Math.min(100, (usage.tokens_used / usage.limit) * 100)}%`,
+                      }}
+                    />
+                  </div>
+                  {usage.blocked && (
+                    <div className="usage-blocked">
+                      Daily limit reached — resets in{" "}
+                      {Math.max(1, Math.round(usage.resets_in / 3600))}h.
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
         </aside>
 
         <section className="chat-main">
           <div className="thread">
             {messages.length === 0 ? (
-              <div className="muted pad">
-                Ask about your stories — search, summarize an article, or manage
-                favorites.
-              </div>
+              convos.length === 0 && greeting ? (
+                // First-ever chat: a canned Briefbot greeting (no LLM call). The
+                // server seeds the same text into the agent's context on the first
+                // message. Later empty chats show the plain placeholder instead.
+                <div className="msg-row assistant">
+                  <span className="msg-avatar" aria-hidden="true">
+                    <BotIcon fontSize="small" />
+                  </span>
+                  <div className="msg assistant">
+                    <div className="msg-body">
+                      <Markdown>{greeting}</Markdown>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="muted pad">
+                  Ask about your stories — search, summarize an article, or manage
+                  favorites.
+                </div>
+              )
             ) : (
               messages.map((m, i) => (
-                <div key={i} className={`msg ${m.role}`}>
-                  {m.tool_calls && m.tool_calls.length > 0 && (
-                    <div className="tool-chips">
-                      {m.tool_calls.map((t, j) => (
-                        <span key={j} className="tool-chip">
-                          {t.name}: {t.summary}
-                        </span>
-                      ))}
+                <div key={i} className={`msg-row ${m.role}`}>
+                  <span className="msg-avatar" aria-hidden="true">
+                    {m.role === "user" ? (
+                      <PersonIcon fontSize="small" />
+                    ) : (
+                      <BotIcon fontSize="small" />
+                    )}
+                  </span>
+                  <div className={`msg ${m.role}`}>
+                    {m.tool_calls && m.tool_calls.length > 0 && (
+                      <div className="tool-chips">
+                        {m.tool_calls.map((t, j) => (
+                          <span key={j} className="tool-chip">
+                            {t.name}: {t.summary}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    {m.topic && (
+                      <>
+                        <ProvisionPipeline
+                          stage={m.topic.stage}
+                          failed={m.topic.failed}
+                        />
+                        {!m.topic.failed && m.topic.stage !== "ready" && (
+                          <LoadingBanner phrases={PROVISION_PHRASES} />
+                        )}
+                      </>
+                    )}
+                    <div className="msg-body">
+                      {m.content ? (
+                        m.role === "assistant" ? (
+                          <Markdown>{m.content}</Markdown>
+                        ) : (
+                          m.content
+                        )
+                      ) : m.role === "assistant" && sending && !m.topic ? (
+                        "…"
+                      ) : (
+                        ""
+                      )}
                     </div>
-                  )}
-                  <div className="msg-body">
-                    {m.content || (m.role === "assistant" && sending ? "…" : "")}
                   </div>
                 </div>
               ))
@@ -178,15 +322,19 @@ export function Chat() {
 
           <form className="chat-input" onSubmit={send}>
             <input
-              placeholder="Message briefbot…"
+              placeholder={
+                usage?.blocked
+                  ? "Daily limit reached…"
+                  : "Message briefbot…"
+              }
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              disabled={sending}
+              disabled={sending || usage?.blocked}
             />
             <button
               className="btn primary icon-btn-text"
               type="submit"
-              disabled={sending || !input.trim()}
+              disabled={sending || !input.trim() || usage?.blocked}
             >
               <SendIcon fontSize="small" />
               {sending ? "…" : "Send"}

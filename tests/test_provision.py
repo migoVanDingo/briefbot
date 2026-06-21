@@ -1,5 +1,6 @@
 from bbv2.provision import provision_topic
 from bbv2.store import Store
+from bbv2.util import utc_now_iso
 
 
 def _seed_candidates(store: Store) -> int:
@@ -28,6 +29,48 @@ def test_provision_emits_stages_and_auto_approves():
     # candidates were flipped to active
     assert store.topic_has_sources("crypto") is True
     assert store.list_candidates("crypto") == []
+
+
+def test_provision_summarize_stage_builds_brief():
+    store = Store(":memory:")
+    tid = _seed_candidates(store)
+    store.upsert_item(
+        {
+            "item_id": "ITM1",
+            "dedupe_key": "url:itm1",
+            "canonical_url": "https://e/1",
+            "source_id": "1",
+            "source_name": "S0",
+            "title": "Bitcoin rallies",
+            "url": "https://e/1",
+            "published_at": utc_now_iso(),
+            "fetched_at": utc_now_iso(),
+            "summary": "BTC up.",
+            "score": 2.0,
+            "raw": {},
+        }
+    )
+    store.map_item_topic("ITM1", tid)
+
+    events = list(
+        provision_topic(
+            store,
+            "crypto",
+            discover=lambda: {"candidates": 2},
+            collect=lambda: {"new": 1},
+            brief_generate=lambda *a, **k: '{"title": "Crypto Today", "summary": "BTC up."}',
+        )
+    )
+    stages = [e["stage"] for e in events if e["type"] == "stage"]
+    assert stages == [
+        "discovering",
+        "approving",
+        "collecting",
+        "reviewing",
+        "summarizing",
+        "ready",
+    ]
+    assert store.latest_brief(tid) is not None  # /headlines now has a brief
 
 
 def test_provision_unknown_topic():

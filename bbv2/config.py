@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Any
 
 try:
     from dotenv import load_dotenv
@@ -53,8 +54,37 @@ def anthropic_model() -> str:
     return os.getenv("ANTHROPIC_MODEL") or ANTHROPIC_DEFAULT_MODEL
 
 
+# xAI Grok — a cheap model for high-volume, low-stakes structured work (story
+# relevance classification). xAI's API is OpenAI-compatible. grok-3-mini is ~10x
+# cheaper than Haiku for in/out tokens; set GROK_MODEL to a current id if the
+# default is retired on your account.
+GROK_DEFAULT_MODEL = "grok-3-mini"
+
+
+def grok_api_key() -> str | None:
+    return os.getenv("GROK_API_KEY") or os.getenv("XAI_API_KEY") or None
+
+
+def grok_model() -> str:
+    return os.getenv("GROK_MODEL") or GROK_DEFAULT_MODEL
+
+
+def relevance_provider() -> str:
+    """Which provider classifies story relevance: 'grok' (default when a Grok key
+    is set) or 'anthropic'. Grok work falls back to Haiku on error regardless."""
+    explicit = os.getenv("RELEVANCE_PROVIDER")
+    if explicit:
+        return explicit.strip().lower()
+    return "grok" if grok_api_key() else "anthropic"
+
+
 def firebase_config_path() -> str | None:
     return os.getenv("FIREBASE_CONFIG") or None
+
+
+def dashboard_url() -> str:
+    """Public dashboard base URL, used in the nightly 'brief ready' email link."""
+    return (os.getenv("DASHBOARD_URL") or "http://localhost:5173").rstrip("/")
 
 
 def admin_emails() -> set[str]:
@@ -82,6 +112,29 @@ def _int_env(name: str, default: int) -> int:
         return default
 
 
+def _bool_env(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def token_budget() -> dict[str, Any]:
+    """Per-user LLM token budget over a rolling window (default: 24h).
+
+    A single limit covers the user's own agent work — chat, agent tasks, and the
+    topic provisioning they initiate. Background/system work (scheduled collection,
+    discovery, nightly briefs, shared rundowns) is metered to a system bucket and
+    never charged to a user. Env-overridable; `TOKEN_LIMIT_ENABLED=false` tracks
+    without enforcing. `TOKEN_CHAT_LIMIT` is still read for back-compat.
+    """
+    return {
+        "enabled": _bool_env("TOKEN_LIMIT_ENABLED", True),
+        "window_s": float(_int_env("TOKEN_WINDOW_S", 86400)),
+        "limit": _int_env("TOKEN_LIMIT", _int_env("TOKEN_CHAT_LIMIT", 100_000)),
+    }
+
+
 def ratelimit_topic_create() -> tuple[int, float]:
     """(limit, window_seconds) for topic creation per user."""
     return _int_env("RL_TOPIC_CREATE_PER_HOUR", 5), 3600.0
@@ -90,6 +143,50 @@ def ratelimit_topic_create() -> tuple[int, float]:
 def ratelimit_provision() -> tuple[int, float]:
     """(limit, window_seconds) for topic provisioning per user."""
     return _int_env("RL_PROVISION_PER_HOUR", 10), 3600.0
+
+
+def ratelimit_default() -> tuple[int, float]:
+    """General per-user limit applied to every dashboard `/api/*` route.
+    Generous so normal browsing never trips it; just a runaway-client backstop."""
+    return _int_env("RL_DEFAULT_PER_MIN", 120), 60.0
+
+
+def ratelimit_chat() -> tuple[int, float]:
+    """Tighter per-user limit for chat turns (each one costs tokens)."""
+    return _int_env("RL_CHAT_PER_MIN", 20), 60.0
+
+
+def ratelimit_consumer() -> tuple[int, float]:
+    """Per-token limit for the read-only consumer API (per service account)."""
+    return _int_env("RL_CONSUMER_PER_MIN", 120), 60.0
+
+
+def default_discover_interval_min() -> int:
+    """Default source-discovery cadence (minutes) when a topic has no override."""
+    return _int_env("DISCOVER_INTERVAL_MIN_DEFAULT", 10_080)  # weekly
+
+
+def default_collect_interval_min() -> int:
+    """Default story-collection cadence (minutes) when a source/topic has none."""
+    return _int_env("COLLECT_INTERVAL_MIN_DEFAULT", 360)  # 6h
+
+
+def max_sources_per_topic() -> int:
+    """Cap on candidate sources discovered/approved for a topic (keeps provisioning
+    fast and the archive lean). Default for new topics; env-overridable."""
+    return _int_env("MAX_SOURCES_PER_TOPIC", 5)
+
+
+def max_stories_per_source() -> int:
+    """Cap on stories ingested per source per collect (newest first)."""
+    return _int_env("MAX_STORIES_PER_SOURCE", 7)
+
+
+def onboard_brief_window_min() -> int:
+    """How long after signup a user is still 'setting up': every topic they add in
+    this window builds its Headlines brief immediately. After it, new topics defer
+    to the nightly brief + on-demand rundowns. Account-age based (reload-proof)."""
+    return _int_env("ONBOARD_BRIEF_WINDOW_MIN", 1440)  # 24h
 
 
 

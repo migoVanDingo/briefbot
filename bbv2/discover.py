@@ -15,6 +15,8 @@ from urllib.parse import urljoin, urlparse, urlunparse
 
 import requests
 
+from .httpclient import request_with_backoff
+
 try:
     from bs4 import BeautifulSoup
 except Exception:  # pragma: no cover - dependency may be missing until install
@@ -116,25 +118,14 @@ def discover_site_feeds(
             "beautifulsoup4 is required for feed discovery; install requirements.txt"
         )
     sess = session or requests.Session()
-    backoff = 1.0
-    resp = None
-    for _ in range(3):
-        resp = sess.get(
+    resp = request_with_backoff(
+        lambda: sess.get(
             site_url,
             timeout=timeout,
             headers={"User-Agent": "bbv2/0.1"},
             verify=verify_ssl,
         )
-        if resp.status_code != 429:
-            break
-        retry_after = resp.headers.get("Retry-After")
-        sleep_s = float(retry_after) if retry_after and retry_after.isdigit() else backoff
-        import time
-
-        time.sleep(min(15.0, max(0.5, sleep_s)))
-        backoff *= 2
-    if resp is None:
-        raise RuntimeError("No response while discovering feeds")
+    )
     resp.raise_for_status()
     feeds = discover_feeds_from_html(resp.text, site_url)
     if feeds:

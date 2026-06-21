@@ -1,0 +1,73 @@
+"""The `bbv2 tick` engine — due-based discovery + collection + quickscan."""
+
+from datetime import datetime, timezone
+
+from bbv2.scheduler import tick
+from bbv2.store import Store
+
+
+def _seed(store: Store) -> tuple[int, int]:
+    tid = store.add_topic("crypto", "Crypto")
+    sid = store.add_source("rss", "https://x/feed", "X")
+    store.link_topic_source(tid, sid)
+    return tid, sid
+
+
+def _stub_collect(touched_tid):
+    def _collect_one(store, row, session, timeout, stats):
+        stats["sources"] += 1
+        stats["new"] += 1
+        return {touched_tid}
+
+    return _collect_one
+
+
+def test_tick_runs_due_work_and_quickscans_touched(monkeypatch):
+    store = Store(":memory:")
+    tid, sid = _seed(store)
+    discovered = []
+    reviewed = []
+
+    def fake_discover(store, slug):
+        discovered.append(slug)
+
+    monkeypatch.setattr(
+        "bbv2.review.quickscan_topic",
+        lambda store, slug, **kw: reviewed.append(slug) or {"reviewed": 0},
+    )
+
+    stats = tick(
+        store,
+        discover_fn=fake_discover,
+        collect_one=_stub_collect(tid),
+        relevance_generate=lambda *a, **k: "{}",
+    )
+
+    assert discovered == ["crypto"]  # never discovered → due
+    assert stats["new"] == 1
+    assert reviewed == ["crypto"]  # touched topic got quickscanned
+    # checkpoints advanced
+    src = store.sources_for_scheduler()[0]
+    assert src["last_collected_at"] is not None
+
+
+def test_tick_skips_when_not_due(monkeypatch):
+    store = Store(":memory:")
+    tid, sid = _seed(store)
+    now = datetime(2026, 6, 20, 12, 0, tzinfo=timezone.utc)
+    # Collected 10 min ago, daily interval → not due.
+    store.set_source_cadence(sid, 1440)
+    store.set_source_collected(sid, "2026-06-20T11:50:00+00:00")
+    store.set_topic_cadence("crypto", discover_interval_min=10080)
+    store.set_topic_discovered("crypto", "2026-06-20T11:50:00+00:00")
+
+    called = []
+    stats = tick(
+        store,
+        now=now,
+        discover_fn=lambda s, slug: called.append(slug),
+        collect_one=_stub_collect(tid),
+        relevance_generate=lambda *a, **k: "{}",
+    )
+    assert called == []  # discovery not due
+    assert stats["sources"] == 0  # collection not due

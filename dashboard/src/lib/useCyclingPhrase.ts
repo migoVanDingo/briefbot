@@ -16,7 +16,7 @@ function shuffle<T>(arr: T[]): T[] {
 export function useCyclingPhrase(
   phrases: string[],
   active: boolean,
-  intervalMs = 2200,
+  intervalMs = 5000,
 ): string {
   const bag = useRef<string[]>([]);
   const [phrase, setPhrase] = useState(phrases[0] ?? "");

@@ -74,6 +74,8 @@ export interface Me {
   user: { id: number; email: string; name: string; role: string };
   settings: { email_enabled: boolean; digest_limit: number };
   subscriptions: string[];
+  onboarded: boolean;
+  greeting: string;
 }
 
 export interface Topic {
@@ -81,6 +83,10 @@ export interface Topic {
   name: string;
   description: string;
   subscribed: boolean;
+  // Admin-only cadence context (present when the caller is an admin).
+  discover_interval_min?: number | null;
+  collect_interval_min?: number | null;
+  last_discovered_at?: string | null;
 }
 
 export interface Item {
@@ -165,11 +171,29 @@ export interface ToolCall {
   summary: string;
 }
 
+export interface TopicProgress {
+  slug: string;
+  stage: string | null;
+  failed?: boolean;
+}
+
 export interface ChatMessage {
   id?: string;
   role: "user" | "assistant";
   content: string;
   tool_calls?: ToolCall[];
+  // Live topic-provisioning pipeline, when this turn ran the create_topic tool.
+  topic?: TopicProgress;
+}
+
+export interface UsageStats {
+  interactions: number;
+  tokens_used: number;
+  limit: number;
+  window_s: number;
+  resets_in: number;
+  enabled: boolean;
+  blocked: boolean;
 }
 
 export interface Settings {
@@ -183,6 +207,8 @@ export interface Source {
   url: string;
   type: string;
   status: string;
+  collect_interval_min?: number | null;
+  last_collected_at?: string | null;
 }
 
 export interface DiscoverStats {
@@ -205,6 +231,26 @@ export interface CollectStats {
 
 export const api = {
   me: () => req<Me>("/api/me"),
+  usage: () => req<UsageStats>("/api/usage"),
+  markOnboarded: () => req("/api/me/onboarded", { method: "POST" }),
+  topicRundown: (slug: string) =>
+    req<{ rundown: Brief | null; reason?: string }>(
+      `/api/topics/${slug}/rundown`,
+      { method: "POST" },
+    ),
+  setTopicCadence: (
+    slug: string,
+    body: { discover_interval_min?: number | null; collect_interval_min?: number | null },
+  ) =>
+    req(`/api/topics/${slug}/cadence`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+  setSourceCadence: (id: number, collect_interval_min: number | null) =>
+    req(`/api/sources/${id}/cadence`, {
+      method: "PATCH",
+      body: JSON.stringify({ collect_interval_min }),
+    }),
   topics: () => req<{ topics: Topic[] }>("/api/topics").then((d) => d.topics),
   createTopic: (body: { slug: string; name?: string; description?: string }) =>
     req<{ ok: boolean; slug: string; existed: boolean }>("/api/topics", {

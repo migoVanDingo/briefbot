@@ -12,6 +12,7 @@ from urllib.parse import urlparse
 
 import requests
 
+from . import config
 from .brave import DiscoveryError, brave_search
 from .config import http_timeout
 from .denylist import is_blocked_domain
@@ -49,11 +50,13 @@ def discover_sources(
     searcher: Searcher | None = None,
     feed_finder: FeedFinder | None = None,
     per_query: int = 8,
-    max_candidates: int = 20,
+    max_candidates: int | None = None,
     max_feeds_per_site: int = 2,
 ) -> dict[str, Any]:
     """Search for sources for a topic and store new candidate feeds.
     Returns stats + the list of added candidate feed URLs."""
+    if max_candidates is None:
+        max_candidates = config.max_sources_per_topic()
     topic = store.get_topic(topic_slug)
     if not topic:
         raise DiscoveryError(f"unknown topic '{topic_slug}'")

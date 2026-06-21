@@ -19,105 +19,24 @@ from typing import Any, Callable, Iterator
 import requests
 
 from . import config
+from .agent_tools import TOOL_SCHEMAS
 from .cluster import cluster_items
 from .llm import LLMError, anthropic_messages, generate_text
 from .store import Store
+from .usage import SYSTEM_USER_ID, budget_status, meter_usage, metered_generate
 
 MAX_ITERATIONS = 8
 MAX_RESULT_CHARS = 8000
 
-TOOL_SCHEMAS: list[dict[str, Any]] = [
-    {
-        "name": "search_stories",
-        "description": "Search the user's subscribed stories by free-text query. "
-        "Returns matching items (title, url, source). Empty query lists the latest.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "query": {"type": "string", "description": "Search terms (may be empty)."},
-                "limit": {"type": "integer", "description": "Max results (default 15)."},
-            },
-            "required": ["query"],
-        },
-    },
-    {
-        "name": "get_trending",
-        "description": "Top trending storylines across the user's subscriptions, "
-        "by recent momentum.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "limit": {"type": "integer", "description": "Max storylines (default 8)."}
-            },
-            "required": [],
-        },
-    },
-    {
-        "name": "summarize_article",
-        "description": "Find the best-matching subscribed story for a query, fetch "
-        "it, and return a grounded summary. Use when asked to summarize/explain an article.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "query": {"type": "string", "description": "Title or topic of the article."}
-            },
-            "required": ["query"],
-        },
-    },
-    {
-        "name": "list_folders",
-        "description": "List the user's favorites folders and how many links each holds.",
-        "input_schema": {"type": "object", "properties": {}, "required": []},
-    },
-    {
-        "name": "create_folder",
-        "description": "Create a favorites folder by name (idempotent).",
-        "input_schema": {
-            "type": "object",
-            "properties": {"name": {"type": "string"}},
-            "required": ["name"],
-        },
-    },
-    {
-        "name": "add_favorite",
-        "description": "Save a story to a favorites folder. Identify it by `query` "
-        "(a title/topic to locate it) or explicit `url`+`title`. `folder` defaults to "
-        "'favorites' and is created if missing.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "query": {"type": "string"},
-                "url": {"type": "string"},
-                "title": {"type": "string"},
-                "folder": {"type": "string"},
-            },
-            "required": [],
-        },
-    },
-    {
-        "name": "list_favorites",
-        "description": "List saved links in a favorites folder (default 'favorites').",
-        "input_schema": {
-            "type": "object",
-            "properties": {"folder": {"type": "string"}},
-            "required": [],
-        },
-    },
-    {
-        "name": "remove_favorite",
-        "description": "Remove a saved link from a folder, by `query` or explicit `url`.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "query": {"type": "string"},
-                "url": {"type": "string"},
-                "folder": {"type": "string"},
-            },
-            "required": [],
-        },
-    },
-]
-
+# Canned first-visit greeting — shown (as if Briefbot said it) on a user's very
+# first chat, and prepended to the agent's context on their first message so the
+# model has continuity. Single source: the dashboard `/me` serves this exact text.
+GREETING = (
+    "Hi, I'm **Briefbot** 👋 — your personal news assistant. Tell me what you're "
+    "interested in and we'll find some topics to follow to get your news stream "
+    "flowing. You can also ask me to search your stories or summarize an article "
+    "or paper anytime."
+)
 
 def _system_prompt() -> str:
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -130,8 +49,63 @@ def _system_prompt() -> str:
         "or links. Call tools as needed (you may call several) before answering. "
         "When you reference a story, include its markdown link. Prefer "
         "summarize_article when asked to explain a specific article. Be concise "
-        "and conversational; use short markdown. If nothing relevant is found, say so."
+        "and conversational; use short markdown. If nothing relevant is found, say so.\n\n"
+        "When the user wants to follow a NEW subject, you can create a topic with "
+        "create_topic. First confirm scope in your own words — e.g. 'So this topic "
+        "should cover news about cryptocurrencies and related markets?' — and only "
+        "call create_topic once they say yes. Provisioning runs automatically and may "
+        "take a moment; after it finishes, tell them it's ready and they're subscribed. "
+        "To follow a topic that ALREADY exists on the platform, use subscribe_topic "
+        "(no need to re-create it).\n\n"
+        "Personalize using the user context block below:\n"
+        "- If they have NO subscriptions, warmly help them get started: ask what "
+        "subjects interest them, then set those up with create_topic. If their "
+        "interests match topics already on the platform, offer those via "
+        "subscribe_topic as a quick shortcut.\n"
+        "- If they DO have subscriptions, open by surfacing what's going on in their "
+        "stories (use get_trending / search_stories), discuss it, and suggest further "
+        "topics — existing platform ones (subscribe_topic) or new ones (create_topic).\n"
+        "- Be mindful of the token budget shown below: keep replies tight, and if "
+        "they're running low, mention it briefly.\n\n"
+        "About the Headlines page: the create_topic result includes `headline_ready`. "
+        "When it is TRUE, the topic's Headlines summary was just built — tell the user "
+        "their Headlines is ready now and invite them to open it. When it is FALSE "
+        "(an established user past initial setup), do NOT promise an instant update: "
+        "explain that the topic's **rundown** updates as soon as they open the topic, "
+        "and the **next daily brief** (built automatically overnight) will include it "
+        "in their morning Headlines from then on. Never tell a user setting up their "
+        "first topics that they must wait until tomorrow — those are ready now."
     )
+
+
+def _context_block(store: Store, user_id: int) -> str:
+    """Per-turn user context appended to the system prompt (no extra LLM call):
+    subscriptions, other available platform topics, and token-budget status."""
+    subs = store.user_subscriptions(user_id)
+    sub_names = [t["name"] for t in subs]
+    sub_slugs = {t["slug"] for t in subs}
+    available = [t["name"] for t in store.list_topics() if t["slug"] not in sub_slugs]
+
+    st = budget_status(store, user_id)
+    used, limit = int(st["used"]), int(st["limit"])
+    remaining = max(0, limit - used)
+
+    lines = ["\n\n--- Current user context ---"]
+    if sub_names:
+        lines.append(f"Subscriptions ({len(sub_names)}): {', '.join(sub_names)}.")
+    else:
+        lines.append("Subscriptions: NONE yet — they haven't set up any topics.")
+    if available:
+        shown = available[:20]
+        more = "" if len(available) <= 20 else f" (+{len(available) - 20} more)"
+        lines.append(
+            f"Other topics already on the platform they could subscribe to: "
+            f"{', '.join(shown)}{more}."
+        )
+    lines.append(
+        f"Token budget today: {used:,} / {limit:,} used (~{remaining:,} left)."
+    )
+    return "\n".join(lines)
 
 
 # ---- tool execution ----------------------------------------------------------
@@ -146,7 +120,13 @@ def _fetch_text(url: str, max_chars: int = 6000) -> str:
     try:
         from bs4 import BeautifulSoup
 
-        r = requests.get(url, timeout=15, headers={"User-Agent": config.USER_AGENT})
+        from .httpclient import request_with_backoff
+
+        r = request_with_backoff(
+            lambda: requests.get(
+                url, timeout=15, headers={"User-Agent": config.USER_AGENT}
+            )
+        )
         if r.status_code >= 400:
             return ""
         soup = BeautifulSoup(r.text, "html.parser")
@@ -227,6 +207,22 @@ def execute_tool(
             f"summarized '{s['title']}'",
         )
 
+    if name == "subscribe_topic":
+        q = (args.get("name") or args.get("slug") or "").strip()
+        if not q:
+            return {"error": "topic name required"}, "missing name"
+        topic = store.get_topic(q) or store.get_topic(_slugify(q))
+        if not topic:
+            return (
+                {"error": f"no existing topic '{q}' — use create_topic to make one"},
+                "no such topic",
+            )
+        store.subscribe(user_id, int(topic["id"]))
+        return (
+            {"subscribed": True, "slug": topic["slug"], "name": topic["name"]},
+            f"subscribed to {topic['name']}",
+        )
+
     if name == "list_folders":
         folders = [{"name": f["name"], "count": f["count"]} for f in store.list_folders(user_id)]
         return {"folders": folders}, f"{len(folders)} folders"
@@ -304,18 +300,110 @@ def _history(store: Store, conversation_id: str) -> list[dict[str, Any]]:
     return msgs
 
 
-def _default_title(user_text: str) -> str:
+def _default_title(user_text: str, generate: Callable[..., str] = generate_text) -> str:
     prompt = (
         "Write a short, specific title (max 6 words) for a chat starting with this "
         "message. Return only the title.\n\n"
         f"Message: {user_text}"
     )
     try:
-        title = generate_text(prompt, max_tokens=24, temperature=0.2).strip()
+        title = generate(prompt, max_tokens=24, temperature=0.2).strip()
     except Exception:
         title = ""
     title = title.strip().strip("\"'`").splitlines()[0] if title else ""
     return (title or (user_text or "New chat").strip())[:80]
+
+
+def _slugify(name: str) -> str:
+    out = "".join(c if c.isalnum() else "-" for c in (name or "").lower())
+    while "--" in out:
+        out = out.replace("--", "-")
+    return out.strip("-")[:40]
+
+
+def _create_topic_events(
+    store: Store,
+    user_id: int,
+    args: dict[str, Any],
+    *,
+    moderate_generate: Callable[..., str] | None,
+    review_generate: Callable[..., str] | None,
+) -> Iterator[dict[str, Any]]:
+    """Create + provision a topic, streaming `topic_stage` events into the chat.
+
+    Yields a `tool_start`, then a `topic_stage` per provisioning step, then a
+    `tool_end`; returns `(result, summary)` for the model's tool_result. The
+    hard token budget gates this (provisioning is the expensive path)."""
+    from .moderation import ModerationError, moderate_topic
+    from .provision import provision_topic
+
+    name = (args.get("name") or "").strip()
+    if not name:
+        return {"error": "a topic name is required"}, "missing name"
+
+    gate = budget_status(store, user_id)
+    if not gate["allowed"]:
+        return {"error": gate["message"], "limit_reached": True}, "limit reached"
+
+    try:
+        clean = moderate_topic(
+            _slugify(name),
+            name,
+            moderate_generate,
+            fail_closed=config.moderation_fail_closed(),
+        )
+    except ModerationError as exc:
+        return {"error": f"topic rejected: {exc.reason}"}, "rejected"
+    slug, display = clean["slug"], clean["name"]
+    store.add_topic(slug, display, (args.get("description") or "").strip())
+
+    yield {"type": "tool_start", "name": "create_topic"}
+    last_stage: str | None = None
+    sources = items = dropped = 0
+    # Build a brief during provisioning while the user is still in their initial
+    # setup window (account age — reload-proof), so every topic they add then
+    # populates the first Headlines. After it, new topics defer to the nightly job
+    # + on-demand rundown (no per-add LLM cost). System bucket (shared artifact).
+    building_brief = store.is_recent_user(
+        user_id, config.onboard_brief_window_min() * 60
+    )
+    brief_generate = (
+        metered_generate(store, SYSTEM_USER_ID, "rundown") if building_brief else None
+    )
+    for ev in provision_topic(
+        store, slug, review_generate=review_generate, brief_generate=brief_generate
+    ):
+        if ev.get("type") == "stage":
+            last_stage = str(ev.get("stage"))
+            yield {"type": "topic_stage", "slug": slug, "stage": last_stage}
+            if ev.get("stage") == "ready":
+                sources = int(ev.get("sources") or 0)
+                items = int(ev.get("items") or 0)
+                dropped = int(ev.get("dropped") or 0)
+        elif ev.get("type") == "error":
+            yield {"type": "topic_stage", "slug": slug, "stage": last_stage, "failed": True}
+            yield {"type": "tool_end", "name": "create_topic", "summary": "provisioning failed"}
+            return {"error": ev.get("message"), "slug": slug}, "provisioning failed"
+
+    store.subscribe(user_id, int(store.get_topic(slug)["id"]))
+    summary = f"created '{display}' — {sources} sources, {items} stories"
+    yield {"type": "tool_end", "name": "create_topic", "summary": summary}
+    return (
+        {
+            "created": True,
+            "slug": slug,
+            "name": display,
+            "subscribed": True,
+            "sources": sources,
+            "stories": items,
+            "dropped": dropped,
+            # True → the topic's Headlines summary was built now (initial setup).
+            # False → it'll appear in the next overnight brief; its rundown updates
+            # when the user opens the topic.
+            "headline_ready": building_brief,
+        },
+        summary,
+    )
 
 
 # ---- the turn ----------------------------------------------------------------
@@ -329,22 +417,40 @@ def run_chat_turn(
     call_model: Callable[..., dict[str, Any]] | None = None,
     title_fn: Callable[[str], str] | None = None,
     summarize_generate: Callable[..., str] | None = None,
+    moderate_generate: Callable[..., str] | None = None,
+    review_generate: Callable[..., str] | None = None,
 ) -> Iterator[dict[str, Any]]:
     """Drive one chat turn, yielding SSE event dicts. Persists the user message,
-    the tool-augmented assistant reply, and (on the first turn) a generated title."""
+    the tool-augmented assistant reply, and (on the first turn) a generated title.
+    Meters every LLM call against the user's daily token budget; the soft (chat)
+    tier gates this turn before any model call is made."""
     call_model = call_model or anthropic_messages
-    title_fn = title_fn or _default_title
-    summarize_generate = summarize_generate or generate_text
+    metered = metered_generate(store, user_id, "chat")
+    title_fn = title_fn or (lambda text: _default_title(text, generate=metered))
+    summarize_generate = summarize_generate or metered
 
     conv = store.get_conversation(user_id, conversation_id)
     if not conv:
         yield {"type": "error", "message": "conversation not found"}
         return
 
+    gate = budget_status(store, user_id)
+    if not gate["allowed"]:
+        yield {"type": "error", "message": gate["message"]}
+        return
+
     needs_title = not (conv["title"] or "").strip()
+    # First message of the user's first-ever conversation → seed the canned greeting
+    # into context so the model continues naturally from "what are you into?".
+    first_ever = (
+        not store.get_messages(conversation_id)
+        and len(store.list_conversations(user_id)) <= 1
+    )
     store.append_message(conversation_id, user_id, "user", user_text)
     messages = _history(store, conversation_id)
-    system = _system_prompt()
+    if first_ever:
+        messages = [{"role": "assistant", "content": GREETING}, *messages]
+    system = _system_prompt() + _context_block(store, user_id)
 
     assistant_text = ""
     tool_log: list[dict[str, Any]] = []
@@ -355,6 +461,7 @@ def run_chat_turn(
         except LLMError as exc:
             yield {"type": "error", "message": str(exc)}
             return
+        meter_usage(store, user_id, "chat", resp.get("usage"), resp.get("model"))
         blocks = resp.get("content") or []
         stop = resp.get("stop_reason")
 
@@ -373,9 +480,19 @@ def run_chat_turn(
                 continue
             name = b.get("name") or ""
             args = b.get("input") or {}
-            yield {"type": "tool_start", "name": name}
-            result, summary = execute_tool(store, user_id, name, args, summarize_generate)
-            yield {"type": "tool_end", "name": name, "summary": summary}
+            if name == "create_topic":
+                # Streams its own tool_start/topic_stage/tool_end events.
+                result, summary = yield from _create_topic_events(
+                    store,
+                    user_id,
+                    args,
+                    moderate_generate=moderate_generate,
+                    review_generate=review_generate,
+                )
+            else:
+                yield {"type": "tool_start", "name": name}
+                result, summary = execute_tool(store, user_id, name, args, summarize_generate)
+                yield {"type": "tool_end", "name": name, "summary": summary}
             tool_log.append({"name": name, "summary": summary})
             tool_results.append(
                 {"type": "tool_result", "tool_use_id": b.get("id"), "content": _result_string(result)}
@@ -389,6 +506,7 @@ def run_chat_turn(
     final = (assistant_text or "_(No response.)_").strip()
     store.append_message(conversation_id, user_id, "assistant", final, tool_calls=tool_log or None)
     store.touch_conversation(conversation_id)
+    store.record_usage(user_id, "chat-turn", None, 0, 0, interaction=1)
 
     if needs_title:
         title = title_fn(user_text)

@@ -18,6 +18,8 @@ def provision_topic(
     *,
     discover: Callable[[], dict[str, Any]] | None = None,
     collect: Callable[[], dict[str, Any]] | None = None,
+    review_generate: Callable[..., str] | None = None,
+    brief_generate: Callable[..., str] | None = None,
 ) -> Iterator[dict[str, Any]]:
     if not store.get_topic(topic_slug):
         yield {"type": "error", "message": "unknown topic"}
@@ -58,9 +60,20 @@ def provision_topic(
     try:
         from .review import quickscan_topic
 
-        review = quickscan_topic(store, topic_slug)
+        review = quickscan_topic(store, topic_slug, generate=review_generate)
     except Exception:
         review = {"kept": None, "dropped": None}
+
+    # Optional: build the topic's first brief so /headlines is populated the moment
+    # the topic is ready (best-effort — Headlines builds it lazily otherwise).
+    if brief_generate is not None:
+        yield {"type": "stage", "stage": "summarizing"}
+        try:
+            from .brief import get_or_build_brief
+
+            get_or_build_brief(store, topic_slug, generate=brief_generate)
+        except Exception as exc:  # noqa: BLE001 - best-effort
+            print(f"[provision] brief failed for {topic_slug}: {exc}")
 
     yield {
         "type": "stage",

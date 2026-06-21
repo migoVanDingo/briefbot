@@ -4,8 +4,15 @@ import TrendingUpIcon from "@mui/icons-material/TrendingUp";
 import { api, type Brief, type Story, type TopicTab } from "../api";
 import { useToasts } from "../state/toasts";
 import { StoryRow } from "../components/StoryRow";
+import { LoadingBanner } from "../components/LoadingBanner";
 
 const TODAY = "__today__";
+const RUNDOWN_PHRASES = [
+  "Reading today's top stories…",
+  "Connecting the dots…",
+  "Synthesizing your rundown…",
+  "Spotting what's trending…",
+];
 
 function paragraphs(text: string): string[] {
   return text
@@ -20,6 +27,8 @@ export function Headlines() {
   const [briefs, setBriefs] = useState<Brief[] | null>(null);
   const [active, setActive] = useState<string>(TODAY);
   const [stories, setStories] = useState<Story[] | null>(null);
+  // The topic tab's rundown: "loading" while building, Brief when ready, null if none.
+  const [rundown, setRundown] = useState<Brief | "loading" | null>(null);
 
   useEffect(() => {
     api
@@ -34,10 +43,16 @@ export function Headlines() {
       });
   }, [push]);
 
-  // A topic tab shows that topic's stories (newest first), with votes + save.
+  // A topic tab shows that topic's rundown (built once per day, shared) above its
+  // stories (newest first), with votes + save.
   useEffect(() => {
     if (active === TODAY) return;
     setStories(null);
+    setRundown("loading");
+    api
+      .topicRundown(active)
+      .then((d) => setRundown(d.rundown))
+      .catch(() => setRundown(null));
     api
       .queryStories({ topic: active, limit: 50 })
       .then(setStories)
@@ -76,28 +91,38 @@ export function Headlines() {
           <div className="muted pad">Loading brief…</div>
         ) : briefs.length === 0 ? (
           <div className="empty">
-            <h2>No brief yet</h2>
+            <h2>Your briefing is being prepared</h2>
             <p className="muted">
-              Subscribe to a topic, then generate its brief (Admin →{" "}
-              <b>Generate brief</b>, or <code>bbv2 brief</code>).
+              Head to <b>Chat</b> and tell Briefbot a subject to follow, or create
+              one on the <b>Topics</b> page. Your morning brief lands here once a
+              topic has stories.
             </p>
           </div>
         ) : (
           briefs.map((b) => <BriefCard key={b.topic_slug} brief={b} />)
         )
-      ) : stories === null ? (
-        <div className="muted pad">Loading…</div>
-      ) : stories.length === 0 ? (
-        <div className="empty">
-          <h2>No stories yet</h2>
-          <p className="muted">Nothing collected for this topic yet.</p>
-        </div>
       ) : (
-        <ul className="story-list">
-          {stories.map((s) => (
-            <StoryRow key={s.item_id} story={s} />
-          ))}
-        </ul>
+        <>
+          {rundown === "loading" ? (
+            <LoadingBanner phrases={RUNDOWN_PHRASES} />
+          ) : rundown ? (
+            <BriefCard brief={rundown} />
+          ) : null}
+          {stories === null ? (
+            <div className="muted pad">Loading…</div>
+          ) : stories.length === 0 ? (
+            <div className="empty">
+              <h2>No stories yet</h2>
+              <p className="muted">Nothing collected for this topic yet.</p>
+            </div>
+          ) : (
+            <ul className="story-list">
+              {stories.map((s) => (
+                <StoryRow key={s.item_id} story={s} />
+              ))}
+            </ul>
+          )}
+        </>
       )}
     </div>
   );

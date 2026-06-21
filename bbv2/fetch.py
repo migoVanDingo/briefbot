@@ -7,7 +7,6 @@ already allows them.) Returns normalized item dicts via `bbv2.normalize`.
 
 from __future__ import annotations
 
-import time
 from typing import Any
 from urllib.parse import urlparse
 
@@ -15,6 +14,7 @@ import feedparser
 import requests
 
 from .config import USER_AGENT
+from .httpclient import request_with_backoff
 from .normalize import normalize_feed_entry
 
 
@@ -47,22 +47,10 @@ def _request_with_retries(
     verify_ssl: bool = True,
     max_attempts: int = 3,
 ) -> requests.Response:
-    backoff = 1.0
-    last_resp: requests.Response | None = None
-    for attempt in range(1, max_attempts + 1):
-        resp = session.get(url, timeout=timeout, headers=headers, verify=verify_ssl)
-        last_resp = resp
-        if resp.status_code != 429:
-            return resp
-        retry_after = resp.headers.get("Retry-After")
-        sleep_s = float(retry_after) if retry_after and retry_after.isdigit() else backoff
-        time.sleep(min(15.0, max(0.5, sleep_s)))
-        backoff *= 2
-        if attempt == max_attempts:
-            return resp
-    if last_resp is None:
-        raise RuntimeError("No HTTP response returned")
-    return last_resp
+    return request_with_backoff(
+        lambda: session.get(url, timeout=timeout, headers=headers, verify=verify_ssl),
+        max_attempts=max_attempts,
+    )
 
 
 def fetch_rss_feed(

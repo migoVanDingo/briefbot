@@ -13,13 +13,14 @@ import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import { auth } from "../firebase";
 import { useAuth } from "../state/auth";
 import { ThemeToggle } from "./ThemeToggle";
+import { OnboardingTour } from "./OnboardingTour";
 
 const NAV = [
-  { to: "/headlines", label: "Headlines", Icon: ArticleIcon },
-  { to: "/stories", label: "Stories", Icon: FeedIcon },
-  { to: "/topics", label: "Topics", Icon: TopicIcon },
-  { to: "/chat", label: "Chat", Icon: ChatIcon },
-  { to: "/favorites", label: "Favorites", Icon: StarIcon },
+  { to: "/headlines", label: "Headlines", Icon: ArticleIcon, tour: "headlines" },
+  { to: "/stories", label: "Stories", Icon: FeedIcon, tour: "stories" },
+  { to: "/topics", label: "Topics", Icon: TopicIcon, tour: "topics" },
+  { to: "/chat", label: "Chat", Icon: ChatIcon, tour: "chat" },
+  { to: "/favorites", label: "Favorites", Icon: StarIcon, tour: "favorites" },
 ];
 
 const linkClass = ({ isActive }: { isActive: boolean }) =>
@@ -53,8 +54,8 @@ export function AppShell() {
           <AutoAwesomeIcon className="brand-mark" fontSize="small" /> briefbot
         </div>
         <nav className="nav">
-          {NAV.map(({ to, label, Icon }) => (
-            <NavLink key={to} to={to} className={linkClass}>
+          {NAV.map(({ to, label, Icon, tour }) => (
+            <NavLink key={to} to={to} className={linkClass} data-tour={tour}>
               <Icon fontSize="small" className="nav-ico" />
               {label}
             </NavLink>
@@ -82,6 +83,7 @@ export function AppShell() {
       <main className="content">
         <Outlet />
       </main>
+      <OnboardingTour />
     </div>
   );
 }
