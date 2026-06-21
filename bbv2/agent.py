@@ -373,13 +373,19 @@ def _create_topic_events(
     ):
         if ev.get("type") == "stage":
             last_stage = str(ev.get("stage"))
-            yield {"type": "topic_stage", "slug": slug, "stage": last_stage}
+            yield {"type": "topic_stage", "slug": slug, "name": display, "stage": last_stage}
             if ev.get("stage") == "ready":
                 sources = int(ev.get("sources") or 0)
                 items = int(ev.get("items") or 0)
                 dropped = int(ev.get("dropped") or 0)
         elif ev.get("type") == "error":
-            yield {"type": "topic_stage", "slug": slug, "stage": last_stage, "failed": True}
+            yield {
+                "type": "topic_stage",
+                "slug": slug,
+                "name": display,
+                "stage": last_stage,
+                "failed": True,
+            }
             yield {"type": "tool_end", "name": "create_topic", "summary": "provisioning failed"}
             return {"error": ev.get("message"), "slug": slug}, "provisioning failed"
 
@@ -438,16 +444,18 @@ def run_chat_turn(
         return
 
     needs_title = not (conv["title"] or "").strip()
-    # First message of the user's first-ever conversation → seed the canned greeting
-    # into context so the model continues naturally from "what are you into?".
+    # First message of the user's first-ever conversation → **persist** the canned
+    # greeting as the conversation's first message, so it stays in the thread (live
+    # and on reload) and seeds the model's context naturally from "what are you
+    # into?".
     first_ever = (
         not store.get_messages(conversation_id)
         and len(store.list_conversations(user_id)) <= 1
     )
+    if first_ever:
+        store.append_message(conversation_id, user_id, "assistant", GREETING)
     store.append_message(conversation_id, user_id, "user", user_text)
     messages = _history(store, conversation_id)
-    if first_ever:
-        messages = [{"role": "assistant", "content": GREETING}, *messages]
     system = _system_prompt() + _context_block(store, user_id)
 
     assistant_text = ""

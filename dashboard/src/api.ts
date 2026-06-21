@@ -148,6 +148,13 @@ export interface TopicTab {
   name: string;
 }
 
+// One calendar day in the Headlines date rail: the topic's brief for that day,
+// or null if none was generated.
+export interface BriefDay {
+  date: string;
+  brief: Brief | null;
+}
+
 export interface Folder {
   id: string;
   name: string;
@@ -176,6 +183,7 @@ export interface ToolCall {
 
 export interface TopicProgress {
   slug: string;
+  name?: string;
   stage: string | null;
   failed?: boolean;
 }
@@ -185,8 +193,9 @@ export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   tool_calls?: ToolCall[];
-  // Live topic-provisioning pipeline, when this turn ran the create_topic tool.
-  topic?: TopicProgress;
+  // Live topic-provisioning pipelines (one per topic) when this turn ran
+  // create_topic — possibly several in a row (e.g. "sports, crypto, world news").
+  topics?: TopicProgress[];
 }
 
 export interface UsageStats {
@@ -307,6 +316,8 @@ export const api = {
       body: JSON.stringify({ item_id, vote }),
     }),
   briefs: () => req<{ briefs: Brief[]; topics: TopicTab[] }>("/api/briefs"),
+  topicBriefs: (slug: string) =>
+    req<{ days: BriefDay[] }>(`/api/topics/${slug}/briefs`).then((d) => d.days),
   generateBrief: (slug: string) =>
     req<{ ok: boolean; title: string }>(`/api/topics/${slug}/brief`, {
       method: "POST",

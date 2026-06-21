@@ -1,13 +1,16 @@
 /* ---- responsive ---- */
+
+/* Long titles/URLs/blurbs wrap instead of forcing horizontal page scroll. */
+.brief-title,
+.story-title {
+  overflow-wrap: anywhere;
+}
+.brief-summary p,
+.story-blurb {
+  overflow-wrap: break-word;
+}
+
 @media (max-width: 640px) {
-  .topbar {
-    flex-wrap: wrap;
-    gap: 10px 16px;
-  }
-  .nav {
-    order: 3;
-    width: 100%;
-  }
   .content {
     padding: 18px 14px;
   }

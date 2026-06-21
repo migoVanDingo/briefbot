@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import AddIcon from "@mui/icons-material/Add";
 import SendIcon from "@mui/icons-material/Send";
 import PersonIcon from "@mui/icons-material/PersonOutlined";
@@ -18,6 +19,19 @@ import { DISCOVER_PHRASES, COLLECT_PHRASES } from "../lib/phrases";
 
 // The witty cycling phrases shown while a topic provisions in-chat (the best part).
 const PROVISION_PHRASES = [...DISCOVER_PHRASES, ...COLLECT_PHRASES];
+
+// Show the "view headlines" link once provisioning is done: live (all pipelines
+// settled, ≥1 ready) or on a reloaded message (a create_topic tool call succeeded).
+function provisioningDone(m: ChatMessage): boolean {
+  const live =
+    !!m.topics?.length &&
+    m.topics.every((t) => t.stage === "ready" || t.failed) &&
+    m.topics.some((t) => t.stage === "ready");
+  const persisted = !!m.tool_calls?.some(
+    (t) => t.name === "create_topic" && /created/i.test(t.summary || ""),
+  );
+  return live || persisted;
+}
 
 // Remember the last-opened conversation so returning to /chat restores it instead
 // of a blank new chat. Validated against the user's own list, so it's safe even if
@@ -132,8 +146,14 @@ export function Chat() {
       }
     }
 
+    // On the user's first-ever message, pin the canned greeting as the first
+    // bubble (the server persists the same text, so it survives a reload too).
+    const isFirstEver = convos.length === 0 && messages.length === 0;
     setInput("");
     setMessages((m) => [
+      ...(isFirstEver && greeting
+        ? [{ role: "assistant" as const, content: greeting }]
+        : []),
       ...m,
       { role: "user", content: text },
       { role: "assistant", content: "", tool_calls: [] },
@@ -170,14 +190,20 @@ export function Chat() {
             return { ...m, tool_calls: tc };
           });
         } else if (type === "topic_stage") {
-          patchLast((m) => ({
-            ...m,
-            topic: {
-              slug: ev.slug as string,
+          patchLast((m) => {
+            const slug = ev.slug as string;
+            const entry = {
+              slug,
+              name: (ev.name as string) ?? slug,
               stage: (ev.stage as string) ?? null,
               failed: Boolean(ev.failed),
-            },
-          }));
+            };
+            const prev = m.topics ?? [];
+            const topics = prev.some((t) => t.slug === slug)
+              ? prev.map((t) => (t.slug === slug ? { ...t, ...entry } : t))
+              : [...prev, entry];
+            return { ...m, topics };
+          });
         } else if (type === "title") {
           setConvos((cs) =>
             cs.map((c) => (c.id === cid ? { ...c, title: ev.title as string } : c)),
@@ -298,16 +324,27 @@ export function Chat() {
                         ))}
                       </div>
                     )}
-                    {m.topic && (
-                      <>
-                        <ProvisionPipeline
-                          stage={m.topic.stage}
-                          failed={m.topic.failed}
-                        />
-                        {!m.topic.failed && m.topic.stage !== "ready" && (
-                          <LoadingBanner phrases={PROVISION_PHRASES} />
-                        )}
-                      </>
+                    {m.topics && m.topics.length > 0 && (
+                      <div className="topic-runs">
+                        {m.topics.map((tp) => {
+                          const inProgress =
+                            !tp.failed && tp.stage !== "ready";
+                          return (
+                            <div key={tp.slug} className="topic-run">
+                              <div className="topic-run-label">
+                                {tp.name ?? tp.slug}
+                              </div>
+                              <ProvisionPipeline
+                                stage={tp.stage}
+                                failed={tp.failed}
+                              />
+                              {inProgress && (
+                                <LoadingBanner phrases={PROVISION_PHRASES} />
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
                     )}
                     <div className="msg-body">
                       {m.content ? (
@@ -316,12 +353,19 @@ export function Chat() {
                         ) : (
                           m.content
                         )
-                      ) : m.role === "assistant" && sending && !m.topic ? (
+                      ) : m.role === "assistant" &&
+                        sending &&
+                        !(m.topics && m.topics.length) ? (
                         "…"
                       ) : (
                         ""
                       )}
                     </div>
+                    {m.role === "assistant" && provisioningDone(m) && (
+                      <Link to="/headlines" className="headlines-link">
+                        View your headlines →
+                      </Link>
+                    )}
                   </div>
                 </div>
               ))

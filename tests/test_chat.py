@@ -60,8 +60,12 @@ def test_run_chat_turn_text_only():
     assert any(e["type"] == "title" and e["title"] == "Greeting" for e in events)
 
     msgs = store.get_messages(cid)
-    assert [m["role"] for m in msgs] == ["user", "assistant"]
-    assert msgs[1]["content"] == "Hi there!"
+    # First-ever turn persists the canned greeting as the conversation's first
+    # message, so it stays in the thread (live + on reload).
+    assert [m["role"] for m in msgs] == ["assistant", "user", "assistant"]
+    assert msgs[0]["content"] == GREETING
+    assert msgs[1]["content"] == "hello"
+    assert msgs[2]["content"] == "Hi there!"
     assert store.get_conversation(uid, cid)["title"] == "Greeting"
 
 
@@ -211,6 +215,36 @@ def test_subscribe_topic_tool():
 
     missing, _ = execute_tool(store, uid, "subscribe_topic", {"name": "nope"}, lambda *a, **k: "")
     assert "error" in missing
+
+
+def test_create_topic_events_carry_name(monkeypatch):
+    """topic_stage events label each pipeline so the chat can show one run per
+    topic (sports → crypto → world news)."""
+    import bbv2.provision as provision
+    from bbv2.agent import _create_topic_events
+
+    store = Store(":memory:")
+    uid = store.add_user("Me", "me@example.com")
+
+    def fake_provision(store, slug, **kwargs):
+        yield {"type": "stage", "stage": "discovering"}
+        yield {"type": "stage", "stage": "ready", "sources": 1, "items": 1, "dropped": 0}
+
+    monkeypatch.setattr(provision, "provision_topic", fake_provision)
+    allow = lambda *a, **k: '{"allowed": true, "category": "ok", "reason": "ok"}'
+
+    events = []
+    gen = _create_topic_events(
+        store, uid, {"name": "World News"}, moderate_generate=allow, review_generate=None
+    )
+    try:
+        while True:
+            events.append(next(gen))
+    except StopIteration:
+        pass
+    stages = [e for e in events if e["type"] == "topic_stage"]
+    assert stages
+    assert all(e["name"] == "World News" and e["slug"] == "world-news" for e in stages)
 
 
 def test_brief_on_provision_only_during_setup_window(monkeypatch):

@@ -191,6 +191,32 @@ def test_approve_all_candidates_bulk():
     assert cands == []
 
 
+def test_topic_briefs_rail():
+    from datetime import datetime, timezone
+
+    store = Store(":memory:", check_same_thread=False)
+    c = _client(store)
+    c.get("/api/me", headers=AUTH)
+    tid = store.add_topic("crypto", "Crypto")
+    today = datetime.now(timezone.utc).date().isoformat()
+    store.upsert_brief(
+        {
+            "id": "BRF1",
+            "topic_id": tid,
+            "date": today,
+            "title": "Bitcoin Network Activity Surges Today",
+            "summary": "s",
+            "trending": [],
+            "sources": [],
+            "model": "m",
+        }
+    )
+    days = c.get("/api/topics/crypto/briefs", headers=AUTH).json()["days"]
+    assert len(days) == 10  # last 10 calendar days, newest first
+    assert days[0]["date"] == today and days[0]["brief"]["title"].startswith("Bitcoin")
+    assert days[1]["brief"] is None  # a day with no brief renders empty
+
+
 def test_approve_all_requires_admin():
     store = Store(":memory:", check_same_thread=False)
     c = _client(store)

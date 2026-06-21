@@ -7,6 +7,7 @@ injectable so the routes are testable offline.
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 from fastapi import APIRouter, Body, Depends, FastAPI, Header, HTTPException
@@ -376,6 +377,25 @@ def add_dashboard_routes(
         return {
             "briefs": out,
             "topics": [{"slug": t["slug"], "name": t["name"]} for t in subs],
+        }
+
+    @router.get("/topics/{slug}/briefs")
+    def topic_briefs(
+        slug: str, days: int = 10, user: dict = Depends(current_user)
+    ) -> dict[str, Any]:
+        """The last `days` calendar days for a topic, each with its brief or null —
+        backs the Headlines date rail. Read-only; never triggers an LLM build (so
+        today's brief is null here until the rundown endpoint builds it)."""
+        topic = _topic_or_404(slug)
+        days = max(1, min(days, 30))
+        today = datetime.now(timezone.utc).date()
+        dates = [(today - timedelta(days=i)).isoformat() for i in range(days)]
+        by_date = {b["date"]: b for b in store.briefs_since(int(topic["id"]), dates[-1])}
+        return {
+            "days": [
+                {"date": d, "brief": _serialize_brief(topic, by_date[d]) if d in by_date else None}
+                for d in dates
+            ]
         }
 
     @router.post("/topics/{slug}/brief")

@@ -131,4 +131,8 @@ collect recency-cutoff + newest-first sort, topic-moderation LLM metering, raw-
 `requests`-error wrap in `llm`, `print()`→`logging` for cron, dead relevance-keyword
 path removed (incl. `keywords_json` column), bulk `approve-all` endpoint, SSE abort-
 on-unmount (Chat/TopicsHome), `index.css` split into per-area files + barrel, and
-the `--surface2`/`--accent2` CSS-var fix.
+the `--surface2`/`--accent2` CSS-var fix. **Headlines date rail (0017):** dropped
+the "Today" aggregate tab (tabs are now just topics); added a left rail of the last
+10 calendar days (`GET /topics/{slug}/briefs`) — pick a day to see that day's brief
++ only that day's stories; collapsed the redundant Trending/Sources lists in the
+brief card (the story list already shows title + blurb + time).

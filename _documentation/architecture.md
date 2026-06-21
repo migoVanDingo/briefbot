@@ -112,6 +112,14 @@ ULID PK isn't content-derived; `store.upsert_item` returns the canonical id.
   **once per `(topic,date)`** and **shared** — the first visitor that day triggers
   it (`POST /api/topics/{slug}/rundown`, system-metered); everyone after reads the
   cache. Headlines shows it atop a topic tab.
+- **Headlines** (`pages/Headlines.tsx`, 0017): tabs are the user's **topics** (no
+  "Today" aggregate). A left **date rail** lists the **last 10 calendar days**
+  (`GET /api/topics/{slug}/briefs`, read-only — never builds); each day with a
+  brief shows `MMM D, YYYY — <title…>` and is selectable, empty days render
+  disabled. Selecting a day shows that day's brief (title + summary only — the
+  trending/sources lists were dropped as redundant with the story list) and **only
+  that day's stories** (`/stories` with a `from`/`to` day window). Today is built
+  on demand via the rundown endpoint.
 - **Onboarding** (first visit): the user lands on `/chat` with a canned Briefbot
   intro, names a topic (→ `create_topic`), and Headlines hydrates. The React-Joyride
   tour shows once per browser (localStorage); `user_settings.onboarded_at` is the
@@ -161,8 +169,12 @@ ULID PK isn't content-derived; `store.upsert_item` returns the canonical id.
 
 `AppShell` (nav + theme) wraps routes: `/headlines` (tabbed brief), `/chat`,
 `/stories`, `/favorites`, `/topics` (user flow), `/admin/topics*` (admin-gated).
-State: Zustand (`auth`, `toasts`, theme). Theme tokens in `theme.ts` →
-injected CSS vars. SSE (chat + provision) is consumed via `fetch` +
+State: Zustand (`auth`, `toasts`, theme, `headlinesNav`). Theme tokens in
+`theme.ts` → injected CSS vars. **Below the tablet breakpoint (≤768px)** the
+topbar collapses to a **hamburger menu** (+ theme toggle): main nav · a dynamic
+section (the Headlines topic tabs when on `/headlines`, via the shared
+`headlinesNav` store) · settings + sign-out. The page never scrolls horizontally
+(long text wraps; only the Headlines date rail scrolls sideways). SSE (chat + provision) is consumed via `fetch` +
 `ReadableStream` (`api.streamSSE`) so the Firebase bearer header can be attached.
 **MUI** (`@mui/icons-material`) is used **selectively for icons** (nav, buttons,
 thumbs/star, chat user/agent avatars) — layout/theme stays custom CSS. A shared
