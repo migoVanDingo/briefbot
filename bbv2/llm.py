@@ -29,6 +29,16 @@ class LLMError(RuntimeError):
     pass
 
 
+def _request(do_request: Callable[[], requests.Response]) -> requests.Response:
+    """Run a request through backoff, converting an exhausted connection error
+    into LLMError so callers only ever have to catch LLMError (a raw
+    RequestException would otherwise escape into the agent/SSE path as a 500)."""
+    try:
+        return request_with_backoff(do_request)
+    except requests.RequestException as exc:
+        raise LLMError(f"LLM request failed: {exc}") from exc
+
+
 def grok_text(
     prompt: str,
     *,
@@ -46,7 +56,7 @@ def grok_text(
     if not api_key:
         raise LLMError("GROK_API_KEY not set")
     model = model or config.grok_model()
-    resp = request_with_backoff(
+    resp = _request(
         lambda: requests.post(
             GROK_URL,
             timeout=timeout,
@@ -95,7 +105,7 @@ def generate_text(
     if not api_key:
         raise LLMError("ANTHROPIC_API_KEY not set")
     model = model or config.anthropic_model()
-    resp = request_with_backoff(
+    resp = _request(
         lambda: requests.post(
             ANTHROPIC_URL,
             timeout=timeout,
@@ -149,7 +159,7 @@ def anthropic_messages(
         payload["system"] = system
     if tools:
         payload["tools"] = tools
-    resp = request_with_backoff(
+    resp = _request(
         lambda: requests.post(
             ANTHROPIC_URL,
             timeout=timeout,

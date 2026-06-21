@@ -9,6 +9,10 @@ class _Resp:
     def __init__(self, status_code: int, retry_after: str | None = None):
         self.status_code = status_code
         self.headers = {"Retry-After": retry_after} if retry_after else {}
+        self.closed = False
+
+    def close(self):
+        self.closed = True
 
 
 def _no_sleep(_seconds):  # record nothing, never actually wait
@@ -50,6 +54,15 @@ def test_gives_up_after_max_attempts():
     out = request_with_backoff(do, max_attempts=3, sleep=_no_sleep, rand=lambda: 0.0)
     assert out.status_code == 429
     assert calls["n"] == 3  # no extra attempt beyond the cap
+
+
+def test_discarded_responses_are_closed_on_retry():
+    # Streamed responses (safe_get) must be released, not leaked, between retries.
+    seq = [_Resp(429), _Resp(503), _Resp(200)]
+    snapshot = list(seq)
+    request_with_backoff(lambda: seq.pop(0), sleep=_no_sleep, rand=lambda: 0.0)
+    assert snapshot[0].closed and snapshot[1].closed  # retried ones closed
+    assert snapshot[2].closed is False  # the returned one is left open for the caller
 
 
 def test_honors_numeric_retry_after():

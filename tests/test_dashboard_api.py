@@ -168,6 +168,40 @@ def test_sources_list_approve_and_empty_collect():
     assert stats["sources"] == 0 and stats["new"] == 0
 
 
+def test_approve_all_candidates_bulk():
+    store = Store(":memory:", check_same_thread=False)
+    c = _client(store)
+    c.get("/api/me", headers=AUTH)
+    store.set_user_role("me@example.com", "admin")
+    tid = store.add_topic("crypto", "Crypto")
+    for i in range(3):
+        sid = store.add_source("rss", f"https://x/{i}", f"S{i}", status="candidate")
+        store.link_topic_source(tid, sid)
+
+    r = c.post("/api/topics/crypto/sources/approve-all", headers=AUTH)
+    assert r.status_code == 200 and r.json()["approved"] == 3
+    active = c.get(
+        "/api/topics/crypto/sources?status=active", headers=AUTH
+    ).json()["sources"]
+    assert len(active) == 3
+    # candidates list is now empty
+    cands = c.get(
+        "/api/topics/crypto/sources?status=candidate", headers=AUTH
+    ).json()["sources"]
+    assert cands == []
+
+
+def test_approve_all_requires_admin():
+    store = Store(":memory:", check_same_thread=False)
+    c = _client(store)
+    c.get("/api/me", headers=AUTH)  # non-admin
+    store.add_topic("crypto", "Crypto")
+    assert (
+        c.post("/api/topics/crypto/sources/approve-all", headers=AUTH).status_code
+        == 403
+    )
+
+
 def test_headlines_only_subscribed():
     store = Store(":memory:", check_same_thread=False)
     c = _client(store)

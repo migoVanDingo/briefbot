@@ -46,12 +46,12 @@ const tokens: Record<ThemeName, Tokens> = {
 const VARS: [keyof Tokens, string][] = [
   ["bg", "--bg"],
   ["surface", "--surface"],
-  ["surface2", "--surface-2"],
+  ["surface2", "--surface2"],
   ["border", "--border"],
   ["text", "--text"],
   ["dim", "--dim"],
   ["accent", "--accent"],
-  ["accent2", "--accent-2"],
+  ["accent2", "--accent2"],
   ["pos", "--pos"],
   ["neg", "--neg"],
 ];

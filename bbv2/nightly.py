@@ -11,12 +11,15 @@ The brief generator + notifier are injectable for offline tests.
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from typing import Any, Callable
 
 from . import config
 from .brief import build_brief
 from .notify import Notifier, default_notifier
+
+log = logging.getLogger("bbv2.nightly")
 from .store import Store
 from .usage import SYSTEM_USER_ID, metered_generate
 
@@ -50,7 +53,7 @@ def run_nightly(
         try:
             brief = build_brief(store, t["slug"], generate=brief_generate, now=now)
         except Exception as exc:  # best-effort; one topic shouldn't sink the run
-            print(f"[nightly] brief failed for {t['slug']}: {exc}")
+            log.warning("brief failed for %s: %s", t["slug"], exc)
             brief = None
         if brief is None:
             stats["topics_skipped"] += 1

@@ -1,0 +1,42 @@
+/* ---- cards / forms ---- */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+}
+.row-form {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+.row-form input {
+  flex: 1;
+  min-width: 0;
+}
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 14px;
+}
+.field input {
+  width: 120px;
+}
+.check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  cursor: pointer;
+}
+.check input {
+  accent-color: var(--accent);
+  width: 18px;
+  height: 18px;
+}

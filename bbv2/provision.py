@@ -7,9 +7,12 @@ discover/collect callables are injectable so the sequence is offline-testable.
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Callable, Iterator
 
 from .store import Store
+
+log = logging.getLogger("bbv2.provision")
 
 
 def provision_topic(
@@ -73,7 +76,7 @@ def provision_topic(
 
             get_or_build_brief(store, topic_slug, generate=brief_generate)
         except Exception as exc:  # noqa: BLE001 - best-effort
-            print(f"[provision] brief failed for {topic_slug}: {exc}")
+            log.warning("brief failed for %s: %s", topic_slug, exc)
 
     yield {
         "type": "stage",

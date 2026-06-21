@@ -1,0 +1,20 @@
+/* ---- brief ---- */
+.brief {
+  margin-bottom: 28px;
+}
+.brief-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.brief-title {
+  font-size: 24px;
+  margin: 8px 0 12px;
+}
+.brief-summary p {
+  line-height: 1.6;
+  margin: 0 0 12px;
+}
+.brief-section {
+  margin-top: 22px;
+}

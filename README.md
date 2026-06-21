@@ -12,7 +12,7 @@ Scale: personal — a handful of accounts (me, family). Not a public SaaS.
 
 ## Status
 
-**Working end-to-end** (plans `0002`–`0015`). Backend (FastAPI + SQLite) +
+**Working end-to-end** (plans `0002`–`0016`). Backend (FastAPI + SQLite) +
 a Vite/React dashboard with Firebase auth:
 
 - **Ingestion** — topics → agent source discovery (Brave, capped per topic) →
@@ -35,7 +35,12 @@ a Vite/React dashboard with Firebase auth:
   backoff (`httpclient`); every inbound route is rate-limited (per-user dashboard,
   per-token consumer); a per-user daily **token budget** (default 100k) covers the
   user's own agent work, while background/shared LLM spend goes to a system bucket.
-- **Consumer API** — token-auth read API for service accounts (e.g. `trader`).
+- **Consumer API** — token-auth read API for service accounts (e.g. `trader`);
+  tokens are revocable (`bbv2 token revoke`).
+- **Hardening** (`0016`) — SSRF-guarded outbound fetches (`safefetch`, private-IP
+  block + redirect re-validation + body cap); env-driven CORS/bind (`ALLOWED_ORIGINS`,
+  `BBV2_SERVE_HOST`) for the Tailscale deploy; file logging for unattended cron;
+  collect drops stale items (newest-first, age cutoff).
 
 Run it: see [`CLAUDE.md`](./CLAUDE.md) for commands (`make dev`), and
 [`_documentation/architecture.md`](./_documentation/architecture.md) for the big

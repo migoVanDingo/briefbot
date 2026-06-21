@@ -6,11 +6,14 @@ A `Notifier` sends one message. `LogNotifier` prints it (safe default / dry-run)
 
 from __future__ import annotations
 
+import logging
 from typing import Protocol
 
 import requests
 
 from .config import mailgun_config
+
+log = logging.getLogger("bbv2.notify")
 
 
 class Notifier(Protocol):
@@ -18,10 +21,10 @@ class Notifier(Protocol):
 
 
 class LogNotifier:
-    """Prints what would be sent — used for --dry-run and as a safe default."""
+    """Logs what would be sent — used for --dry-run and as a safe default."""
 
     def send(self, to: str, subject: str, body: str) -> None:
-        print(f"\n[email] to={to}\n[email] subject={subject}\n{body}\n")
+        log.info("[email] to=%s subject=%s\n%s", to, subject, body)
 
 
 class MailgunNotifier:

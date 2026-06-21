@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 from datetime import datetime, timedelta, timezone
 
 from . import config
@@ -145,7 +146,20 @@ def cmd_token_list(_: argparse.Namespace) -> None:
     store = _store()
     for t in store.list_tokens():
         masked = t["token"][:6] + "…"
-        print(f"{t['label']:16} {masked:8} [{', '.join(t['topics'])}]  {t['created_at']}")
+        state = " [REVOKED]" if t.get("revoked_at") else ""
+        print(
+            f"{t['label']:16} {masked:8} [{', '.join(t['topics'])}]  {t['created_at']}{state}"
+        )
+    store.close()
+
+
+def cmd_token_revoke(args: argparse.Namespace) -> None:
+    store = _store()
+    n = store.revoke_token(args.token_or_label)
+    if n:
+        print(f"revoked {n} token(s) matching '{args.token_or_label}'")
+    else:
+        print(f"no active token matched '{args.token_or_label}'")
     store.close()
 
 
@@ -163,11 +177,16 @@ def cmd_serve(args: argparse.Namespace) -> None:
     add_dashboard_routes(app, store, verify_token)  # /api/* (Firebase)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+        allow_origins=config.allowed_origins(),  # ALLOWED_ORIGINS env (Tailscale deploy)
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @app.on_event("shutdown")
+    def _close_store() -> None:
+        store.close_all()
+
     uvicorn.run(app, host=args.host, port=args.port)
 
 
@@ -387,9 +406,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_tc.add_argument("--topics", required=True, help="comma-separated topic slugs")
     p_tc.set_defaults(func=cmd_token_create)
     token_sub.add_parser("list").set_defaults(func=cmd_token_list)
+    p_trv = token_sub.add_parser("revoke")
+    p_trv.add_argument("token_or_label", help="full token or label to revoke")
+    p_trv.set_defaults(func=cmd_token_revoke)
 
     p_serve = sub.add_parser("serve")
-    p_serve.add_argument("--host", default="127.0.0.1")
+    p_serve.add_argument("--host", default=config.serve_host())
     p_serve.add_argument("--port", type=int, default=8080)
     p_serve.set_defaults(func=cmd_serve)
 
@@ -444,7 +466,30 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _setup_logging() -> None:
+    """Send bbv2 logs to console + a rotating-ish file in the log dir, with
+    timestamps/levels — so unattended `tick`/`nightly` cron runs are auditable.
+    Configured here (CLI entrypoint) only, never at import time."""
+    if logging.getLogger("bbv2").handlers:
+        return
+    fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+    logger = logging.getLogger("bbv2")
+    logger.setLevel(logging.INFO)
+    console = logging.StreamHandler()
+    console.setFormatter(fmt)
+    logger.addHandler(console)
+    try:
+        log_dir = config.log_dir()
+        log_dir.mkdir(parents=True, exist_ok=True)
+        file_handler = logging.FileHandler(log_dir / "bbv2.log")
+        file_handler.setFormatter(fmt)
+        logger.addHandler(file_handler)
+    except OSError:
+        pass  # console logging still works if the log dir isn't writable
+
+
 def main(argv: list[str] | None = None) -> None:
+    _setup_logging()
     parser = build_parser()
     args = parser.parse_args(argv)
     args.func(args)

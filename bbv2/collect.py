@@ -4,6 +4,8 @@ store → map items to their source's topic(s)."""
 from __future__ import annotations
 
 import json
+import logging
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import requests
@@ -12,8 +14,34 @@ from . import config
 from .config import http_timeout
 from .discover import discover_site_feeds
 from .fetch import FetchError, fetch_rss_feed
-from .score import compute_score
+from .score import compute_score, parse_iso_utc
 from .store import Store
+
+log = logging.getLogger("bbv2.collect")
+
+
+def _published_dt(item: dict[str, Any]) -> datetime | None:
+    return parse_iso_utc(item.get("published_at") or item.get("fetched_at"))
+
+
+def _fresh_newest_first(items: list[dict[str, Any]], max_age_days: int) -> list[dict[str, Any]]:
+    """Sort items newest-first (feed order is NOT guaranteed newest) and drop any
+    older than the cutoff. Undated items can't be proven stale, so they're kept
+    and sorted last."""
+    cutoff = (
+        datetime.now(timezone.utc) - timedelta(days=max_age_days)
+        if max_age_days > 0
+        else None
+    )
+    floor = datetime.min.replace(tzinfo=timezone.utc)
+    kept: list[tuple[datetime, dict[str, Any]]] = []
+    for it in items:
+        dt = _published_dt(it)
+        if cutoff is not None and dt is not None and dt < cutoff:
+            continue
+        kept.append((dt or floor, it))
+    kept.sort(key=lambda p: p[0], reverse=True)
+    return [it for _, it in kept]
 
 
 def _resolve_feed_urls(
@@ -57,10 +85,11 @@ def collect_source(
         feed_urls = _resolve_feed_urls(row, store, session, timeout)
     except Exception as exc:  # discovery is best-effort
         stats["errors"] += 1
-        print(f"[collect] discover failed for {row['name']}: {exc}")
+        log.warning("discover failed for %s: %s", row["name"], exc)
         return set()
 
     touched: set[int] = set()
+    max_age = config.collect_max_age_days()
     remaining = config.max_stories_per_source()  # newest-first cap per source
     for feed_url in feed_urls:
         if remaining <= 0:
@@ -72,11 +101,13 @@ def collect_source(
             )
         except FetchError as exc:
             stats["errors"] += 1
-            print(f"[collect] fetch failed: {exc}")
+            log.warning("fetch failed: %s", exc)
             continue
         if status == "not_modified":
             stats["not_modified"] += 1
             continue
+        # Sort newest-first and drop stale entries before applying the per-source cap.
+        items = _fresh_newest_first(items, max_age)
         for item in items[:remaining]:
             # One bad item / transient DB hiccup must not sink the whole topic.
             try:
@@ -91,7 +122,7 @@ def collect_source(
                     stats["new"] += 1
             except Exception as exc:  # noqa: BLE001 - best-effort per item
                 stats["errors"] += 1
-                print(f"[collect] item failed ({src['name']}): {exc}")
+                log.warning("item failed (%s): %s", src["name"], exc)
     return touched
 
 

@@ -14,8 +14,8 @@ import feedparser
 import requests
 
 from .config import USER_AGENT
-from .httpclient import request_with_backoff
 from .normalize import normalize_feed_entry
+from .safefetch import UnsafeURLError, safe_get
 
 
 class FetchError(Exception):
@@ -39,20 +39,6 @@ def source_homepage(source: dict[str, Any], fallback_url: str | None = None) -> 
     return f"{parsed.scheme}://{parsed.netloc}/"
 
 
-def _request_with_retries(
-    session: requests.Session,
-    url: str,
-    timeout: int,
-    headers: dict[str, str],
-    verify_ssl: bool = True,
-    max_attempts: int = 3,
-) -> requests.Response:
-    return request_with_backoff(
-        lambda: session.get(url, timeout=timeout, headers=headers, verify=verify_ssl),
-        max_attempts=max_attempts,
-    )
-
-
 def fetch_rss_feed(
     source: dict[str, Any],
     feed_url: str,
@@ -61,20 +47,17 @@ def fetch_rss_feed(
     timeout: int = 20,
 ) -> tuple[list[dict[str, Any]], str]:
     """Fetch + parse a feed. Returns (items, status) where status is
-    'ok' | 'not_modified'. Raises FetchError on transport/HTTP failures."""
+    'ok' | 'not_modified'. Raises FetchError on transport/HTTP failures.
+
+    TLS is always verified and the fetch is SSRF-guarded (`safe_get`)."""
     sess = session or requests.Session()
     headers = {"User-Agent": USER_AGENT}
     headers.update(store.get_feed_cache_headers(feed_url))
-    verify_ssl = bool(source.get("verify_ssl", True))
 
     try:
-        resp = _request_with_retries(
-            session=sess,
-            url=feed_url,
-            timeout=timeout,
-            headers=headers,
-            verify_ssl=verify_ssl,
-        )
+        resp = safe_get(feed_url, session=sess, timeout=timeout, headers=headers, max_attempts=3)
+    except UnsafeURLError as exc:
+        raise FetchError(f"Feed blocked (unsafe URL): {feed_url} ({exc})", url=feed_url) from exc
     except requests.exceptions.SSLError as exc:
         raise FetchError(f"Feed SSL error: {feed_url} ({exc})", url=feed_url) from exc
     except requests.RequestException as exc:

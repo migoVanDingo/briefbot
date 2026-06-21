@@ -15,7 +15,7 @@ from urllib.parse import urljoin, urlparse, urlunparse
 
 import requests
 
-from .httpclient import request_with_backoff
+from .safefetch import UnsafeURLError, safe_get
 
 try:
     from bs4 import BeautifulSoup
@@ -111,21 +111,15 @@ def discover_site_feeds(
     site_url: str,
     timeout: int = 20,
     session: requests.Session | None = None,
-    verify_ssl: bool = True,
 ) -> list[str]:
+    """Discover feed URLs for a site. SSRF-guarded + TLS-verified via `safe_get`."""
     if BeautifulSoup is None:
         raise RuntimeError(
             "beautifulsoup4 is required for feed discovery; install requirements.txt"
         )
     sess = session or requests.Session()
-    resp = request_with_backoff(
-        lambda: sess.get(
-            site_url,
-            timeout=timeout,
-            headers={"User-Agent": "bbv2/0.1"},
-            verify=verify_ssl,
-        )
-    )
+    headers = {"User-Agent": "bbv2/0.1"}
+    resp = safe_get(site_url, session=sess, timeout=timeout, headers=headers)
     resp.raise_for_status()
     feeds = discover_feeds_from_html(resp.text, site_url)
     if feeds:
@@ -135,13 +129,8 @@ def discover_site_feeds(
     probed: list[str] = []
     for candidate in _candidate_feed_urls(site_url, soup):
         try:
-            r = sess.get(
-                candidate,
-                timeout=timeout,
-                headers={"User-Agent": "bbv2/0.1"},
-                verify=verify_ssl,
-            )
-        except requests.RequestException:
+            r = safe_get(candidate, session=sess, timeout=timeout, headers=headers)
+        except (requests.RequestException, UnsafeURLError):
             continue
         if r.status_code >= 400:
             continue

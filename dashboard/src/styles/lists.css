@@ -1,0 +1,74 @@
+/* ---- lists ---- */
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.list-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+}
+.list-title {
+  font-weight: 600;
+}
+.list-title.link {
+  text-decoration: none;
+}
+.list-title.link:hover {
+  color: var(--accent);
+}
+
+.back-link {
+  display: inline-block;
+  text-decoration: none;
+  color: var(--dim);
+  font-size: 13px;
+  margin-bottom: 10px;
+}
+.back-link:hover {
+  color: var(--text);
+}
+.detail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.detail-head .page-title {
+  margin: 0;
+  text-transform: capitalize;
+}
+.detail-actions {
+  display: flex;
+  gap: 8px;
+}
+.section {
+  margin-top: 26px;
+}
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.section-head .section-title {
+  margin: 0;
+}
+.section-title {
+  font-size: 14px;
+  color: var(--dim);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin: 0 0 10px;
+}

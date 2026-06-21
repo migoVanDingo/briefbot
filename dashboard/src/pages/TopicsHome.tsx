@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import AddIcon from "@mui/icons-material/Add";
 import TopicIcon from "@mui/icons-material/TagOutlined";
 import { api, type Topic } from "../api";
@@ -23,12 +23,15 @@ export function TopicsHome() {
   const [provisioning, setProvisioning] = useState<string | null>(null);
   const [stage, setStage] = useState<string | null>(null);
   const [failedStage, setFailedStage] = useState<string | null>(null);
+  const provisionAbort = useRef<AbortController | null>(null);
 
   const load = () =>
     api.topics().then(setTopics).catch((e) => push(String(e), "error"));
 
   useEffect(() => {
     load();
+    // Abort an in-flight provision stream if the user leaves mid-provision.
+    return () => provisionAbort.current?.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -71,6 +74,7 @@ export function TopicsHome() {
       setFailedStage(null);
       let lastStage: string | null = null;
       let didFail = false;
+      provisionAbort.current = new AbortController();
       await api.provisionTopic(res.slug, (ev) => {
         if (ev.type === "stage") {
           lastStage = ev.stage as string;
@@ -79,22 +83,30 @@ export function TopicsHome() {
           didFail = true;
           push(String(ev.message), "error");
         }
-      });
+      }, provisionAbort.current.signal);
       if (didFail) {
         setFailedStage(lastStage ?? "discovering");
       } else {
         // Auto-subscribe to the freshly provisioned topic; user can unsubscribe below.
-        await api.subscribe(res.slug).catch(() => {});
-        push(`"${res.slug}" is ready — you're subscribed.`, "success");
+        try {
+          await api.subscribe(res.slug);
+          push(`"${res.slug}" is ready — you're subscribed.`, "success");
+        } catch {
+          // The topic provisioned fine; only the subscribe failed — say so plainly.
+          push(`"${res.slug}" is ready — but subscribing failed; try the ☆ below.`, "info");
+        }
       }
     } catch (err) {
+      if (provisionAbort.current?.signal.aborted) return; // unmounted — ignore
       // moderation 422 reason, rate-limit 429, etc. surface here
       setFailedStage((s) => s ?? stage ?? "discovering");
       push(String(err).replace(/^Error:\s*/, ""), "error");
     } finally {
-      setProvisioning(null);
-      setStage(null);
-      load();
+      if (!provisionAbort.current?.signal.aborted) {
+        setProvisioning(null);
+        setStage(null);
+        load();
+      }
     }
   };
 

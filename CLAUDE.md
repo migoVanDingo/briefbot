@@ -57,7 +57,8 @@ python -m bbv2 source approve <id>   |   python -m bbv2 source reject <id>
 # Consumer API (0003)
 python -m bbv2 token create --label trader --topics crypto,markets,geopolitics
 python -m bbv2 token list
-python -m bbv2 serve --host 127.0.0.1 --port 8080
+python -m bbv2 token revoke <label|token>   # kill a leaked token (0016)
+python -m bbv2 serve --host 127.0.0.1 --port 8080   # --host defaults to BBV2_SERVE_HOST
 #   consumer API (service token): GET /health /topics /items
 #   dashboard API (Firebase ID token, 0007): /api/me /api/topics /api/headlines …
 #   needs FIREBASE_CONFIG = path to the Admin *service-account* JSON
@@ -78,7 +79,7 @@ auth) — **not** containerized.
 ```bash
 cd dashboard
 npm install
-npm run dev        # http://localhost:5173  (talks to `bbv2 serve` on :8080)
+npm run dev        # http://localhost:5180  (talks to `bbv2 serve` on :8080)
 ```
 
 Needs `dashboard/.env` (gitignored) with the Firebase **web** config
@@ -133,12 +134,15 @@ Shipped: `0002` ingestion core · `0003` consumer API · `0004` Brave discovery 
 `0005` multi-user + settings + email · `0006/0007` dashboard (design + Firebase
 API) · **`0008` v1-dashboard port** (Headlines/Chat/Stories/Favorites + `/admin/
 topics`, prefixed ULIDs, brief engine, chat agent) · **`0009` user topic flow +
-owner-only roles + guardrails**.
+owner-only roles + guardrails** · `0010`–`0015` relevance/chat/budget/cadence
+polish · **`0016` tech-debt + hardening** (SSRF guard `safefetch`, env CORS/bind,
+token revoke, collect recency filter, moderation metering, cron logging, CSS
+split, SSE abort, dead-code removal — see `_plans/0016`).
 
 ## WHERE WE ARE — pick up here (2026-06-19)
 
 **Plan `0008` (phases 1–6) is done** — the original briefbot's normal-flow
-dashboard is ported into bbv2. Run `make dev` (backend :8080 + frontend :5173):
+dashboard is ported into bbv2. Run `make dev` (backend :8080 + frontend :5180):
 
 - **Routes:** `/headlines` (tabbed: *Today* = generated brief — title + summary +
   Trending + Sources; per-topic tabs = stories newest-first), `/chat` (Haiku

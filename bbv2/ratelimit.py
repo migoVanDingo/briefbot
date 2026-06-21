@@ -14,8 +14,14 @@ from typing import Any
 
 
 class RateLimiter:
+    # Periodically drop keys idle longer than this so the dict can't grow without
+    # bound as users/tokens accumulate over the process lifetime.
+    _MAX_IDLE_S = 3600.0
+    _SWEEP_EVERY = 1000
+
     def __init__(self) -> None:
         self._hits: dict[Any, deque] = defaultdict(deque)
+        self._since_sweep = 0
 
     def check(
         self, key: Any, *, limit: int, window_s: float, now: float | None = None
@@ -29,7 +35,19 @@ class RateLimiter:
         if len(dq) >= limit:
             return False, max(0.0, window_s - (now - dq[0]))
         dq.append(now)
+        self._since_sweep += 1
+        if self._since_sweep >= self._SWEEP_EVERY:
+            self._sweep(now)
         return True, 0.0
+
+    def _sweep(self, now: float) -> None:
+        """Evict keys with no hit in the last `_MAX_IDLE_S` (they'd prune to empty
+        on next access anyway)."""
+        self._since_sweep = 0
+        idle = now - self._MAX_IDLE_S
+        stale = [k for k, dq in self._hits.items() if not dq or dq[-1] <= idle]
+        for k in stale:
+            del self._hits[k]
 
 
 # Process-wide limiter shared by the API routes.

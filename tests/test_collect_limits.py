@@ -70,6 +70,39 @@ def test_collect_item_failure_does_not_sink_topic(monkeypatch):
     assert stats["items"] == 4 and stats["errors"] == 1
 
 
+def test_collect_drops_stale_then_keeps_newest_under_cap(monkeypatch):
+    from datetime import datetime, timedelta, timezone
+
+    # Tight cap so the newest-first sort decides WHICH items survive.
+    monkeypatch.setattr(config, "max_stories_per_source", lambda: 2)
+    monkeypatch.setattr(config, "collect_max_age_days", lambda: 14)
+    store = Store(":memory:")
+    tid = store.add_topic("crypto", "Crypto")
+    sid = store.add_source("rss", "https://x/feed", "X")
+    store.link_topic_source(tid, sid)
+    row = store.active_sources("crypto")[0]
+
+    now = datetime.now(timezone.utc)
+
+    def dated(i, days_ago):
+        it = _item(i)
+        it["published_at"] = (now - timedelta(days=days_ago)).isoformat()
+        return it
+
+    # Feed order is deliberately NOT newest-first; Story 2 is stale (40d old).
+    feed = [dated(1, 3), dated(2, 40), dated(3, 1), dated(4, 10)]
+    monkeypatch.setattr(collect_mod, "fetch_rss_feed", lambda *a, **k: (feed, "ok"))
+
+    stats = collect_mod._empty_stats()
+    collect_mod.collect_source(store, row, requests.Session(), 20, stats)
+    assert stats["items"] == 2  # stale dropped, then capped to 2
+
+    # The two newest fresh items (1d, 3d) survive — NOT the 10-day-old one,
+    # proving the cap applies after a newest-first sort (not feed order).
+    titles = {r["title"] for r in store.items_for_topic("crypto", limit=10)}
+    assert titles == {"Story 3", "Story 1"}
+
+
 def test_discovery_caps_sources(monkeypatch):
     monkeypatch.setattr(config, "max_sources_per_topic", lambda: 5)
     store = Store(":memory:")

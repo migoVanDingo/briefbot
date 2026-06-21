@@ -15,17 +15,22 @@ from dateutil import parser as dtparser
 RECENCY_WINDOW_HOURS = 72.0
 
 
-def _age_hours(iso_ts: str | None) -> float:
+def parse_iso_utc(iso_ts: str | None) -> datetime | None:
+    """Parse an ISO timestamp into an aware UTC datetime, or None if unparseable.
+    Shared by recency scoring and the collect staleness cutoff."""
     if not iso_ts:
-        return 9999.0
+        return None
     try:
         dt = dtparser.parse(iso_ts)
     except (TypeError, ValueError, OverflowError):
+        return None
+    return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt.astimezone(timezone.utc)
+
+
+def _age_hours(iso_ts: str | None) -> float:
+    dt = parse_iso_utc(iso_ts)
+    if dt is None:
         return 9999.0
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    else:
-        dt = dt.astimezone(timezone.utc)
     return max(0.0, (datetime.now(timezone.utc) - dt).total_seconds() / 3600.0)
 
 

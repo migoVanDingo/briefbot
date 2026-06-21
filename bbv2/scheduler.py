@@ -11,6 +11,7 @@ The discover/collect/relevance callables are injectable so this is offline-testa
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from typing import Any, Callable
 
@@ -20,6 +21,8 @@ from . import config
 from .collect import _empty_stats, collect_source
 from .store import Store
 from .usage import SYSTEM_USER_ID, metered_relevance_generate
+
+log = logging.getLogger("bbv2.scheduler")
 
 
 def _due(last_iso: str | None, interval_min: int, now: datetime) -> bool:
@@ -70,7 +73,7 @@ def tick(
             stats["discovered"] += 1
         except Exception as exc:  # best-effort
             stats["discover_errors"] += 1
-            print(f"[tick] discover failed for {t['slug']}: {exc}")
+            log.warning("discover failed for %s: %s", t["slug"], exc)
         store.set_topic_discovered(t["slug"], now_iso)
 
     # 2) Story collection — per source, when due.
@@ -90,6 +93,6 @@ def tick(
         try:
             quickscan_topic(store, slug, generate=relevance_generate)
         except Exception as exc:
-            print(f"[tick] quickscan failed for {slug}: {exc}")
+            log.warning("quickscan failed for %s: %s", slug, exc)
     stats["reviewed_topics"] = len(slugs)
     return stats

@@ -41,6 +41,11 @@ export function Chat() {
   const [sending, setSending] = useState(false);
   const [usage, setUsage] = useState<UsageStats | null>(null);
   const threadEnd = useRef<HTMLDivElement>(null);
+  const streamAbort = useRef<AbortController | null>(null);
+
+  // Abort an in-flight chat stream if the user navigates away mid-turn, so the
+  // reader stops and we don't setState on an unmounted component.
+  useEffect(() => () => streamAbort.current?.abort(), []);
 
   const rememberActive = (id: string) => {
     setActiveId(id);
@@ -142,6 +147,7 @@ export function Chat() {
         return copy;
       });
 
+    streamAbort.current = new AbortController();
     try {
       await api.streamMessage(cid, text, (ev) => {
         const type = ev.type as string;
@@ -179,13 +185,16 @@ export function Chat() {
         } else if (type === "error") {
           push(String(ev.message), "error");
         }
-      });
+      }, streamAbort.current.signal);
     } catch (err) {
+      if (streamAbort.current?.signal.aborted) return; // unmounted — ignore
       push(String(err), "error");
     } finally {
-      setSending(false);
-      loadConvos();
-      loadUsage();
+      if (!streamAbort.current?.signal.aborted) {
+        setSending(false);
+        loadConvos();
+        loadUsage();
+      }
     }
   };
 

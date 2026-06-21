@@ -135,14 +135,18 @@ export function TopicDetail() {
   };
 
   const approveAll = async () => {
-    const n = candidates.length;
     try {
-      await Promise.all(candidates.map((s) => api.approve(s.id)));
-      push(`Approved ${n} source${n === 1 ? "" : "s"}`, "success");
+      // One transactional endpoint instead of N parallel POSTs (which raced and
+      // surfaced "failed to fetch", losing partial progress on error).
+      const { approved } = await api.approveAll(slug);
+      push(`Approved ${approved} source${approved === 1 ? "" : "s"}`, "success");
       setCandidates([]);
       setActive(await api.sources(slug, "active"));
     } catch (e) {
+      // Re-sync both lists so any partial server-side progress is reflected.
       push(String(e), "error");
+      setCandidates(await api.sources(slug, "candidate").catch(() => candidates));
+      setActive(await api.sources(slug, "active").catch(() => []));
     }
   };
 

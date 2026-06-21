@@ -1,0 +1,26 @@
+/* ---- responsive ---- */
+@media (max-width: 640px) {
+  .topbar {
+    flex-wrap: wrap;
+    gap: 10px 16px;
+  }
+  .nav {
+    order: 3;
+    width: 100%;
+  }
+  .content {
+    padding: 18px 14px;
+  }
+  .row-form {
+    flex-direction: column;
+  }
+  .chat-shell {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr;
+  }
+  .chat-side {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    max-height: 28vh;
+  }
+}

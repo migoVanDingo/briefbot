@@ -50,7 +50,7 @@ export function Login() {
     <div className="login">
       <div className="login-card">
         <div className="brand login-brand">
-          <span className="brand-mark">◆</span> briefbot
+          <span className="brand-mark" aria-hidden="true">◆</span> briefbot
         </div>
         <p className="login-sub">Your topic-driven news.</p>
 

@@ -1,0 +1,58 @@
+/* ---- loading banner (witty cycling phrases) ---- */
+.loading-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 16px 18px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-lg);
+}
+.spinner {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  animation: spin 0.7s linear infinite;
+}
+.loading-text {
+  font-weight: 600;
+  animation: phrase-in 0.3s ease;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes phrase-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.src-info {
+  min-width: 0;
+}
+.src-info .small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 52ch;
+}
+.src-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.src-actions .btn {
+  text-decoration: none;
+  padding: 7px 12px;
+}

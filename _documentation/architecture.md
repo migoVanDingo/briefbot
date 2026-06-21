@@ -33,8 +33,12 @@ keeps one shared connection since each connection is a separate in-memory DB.
   autodiscovery), `brave.py` (web search), `llm.py` (Anthropic Haiku **+ xAI Grok**
   `grok_text`). All outbound calls go through `httpclient.request_with_backoff`
   (retry 429/5xx/529 + connection errors, `Retry-After`-aware, backoff + jitter).
-  `models.relevance_generate` routes story relevance to Grok (Haiku fallback);
-  prose (chat/briefs) stays Haiku.
+  **User-driven/feed-driven fetches** (RSS, discovery, the chat `summarize_article`
+  tool) additionally go through `safefetch.safe_get`: an **SSRF guard** that blocks
+  hosts resolving to loopback/link-local/private/reserved IPs (incl.
+  `169.254.169.254`), re-validates each redirect hop, and caps the response body
+  (`BBV2_ALLOW_PRIVATE_FETCH=true` opts out for dev). `models.relevance_generate`
+  routes story relevance to Grok (Haiku fallback); prose (chat/briefs) stays Haiku.
 - **Persistence** — `store.py` (schema + migrations + core queries) + mixins
   (`store_dashboard`, `store_favorites`, `store_chat`, `store_consumer`,
   `store_usage`, `store_schedule` (cadence/due), `store_cache` (feed/discovery
@@ -56,8 +60,9 @@ keeps one shared connection since each connection is a separate in-memory DB.
 `topics` (+ cadence: `discover_interval_min`, `collect_interval_min`,
 `last_discovered_at`, `last_briefed_at`), `sources` (status + `collect_interval_min`,
 `last_collected_at`), `topic_sources`, `items` (+ `dedupe_key` UNIQUE),
-`item_topics` (+ `relevant`), `feed_cache`, `discovered_feeds`, `api_tokens` +
-`token_topics`, `users` (role), `subscriptions`, `user_settings` (+ `onboarded_at`),
+`item_topics` (+ `relevant`), `feed_cache`, `discovered_feeds`, `api_tokens`
+(+ `revoked_at`) + `token_topics`, `users` (role), `subscriptions`,
+`user_settings` (+ `onboarded_at`),
 `story_feedback`, `briefs` (UNIQUE `topic_id,date` — also the shared rundown cache),
 `favorite_folders` + `favorite_links`, `conversations` + `conversation_messages`,
 `token_usage` (per-user + `system` (user_id 0) LLM spend).
@@ -145,7 +150,12 @@ ULID PK isn't content-derived; `store.upsert_item` returns the canonical id.
 - **Per-user scoping:** stories/headlines are scoped to subscriptions; favorites
   and conversations are per user.
 - **Consumer API:** opaque service tokens (`bbv2 token create`) scoped to topic
-  slugs; read-only; rate-limited per token (`/health` exempt).
+  slugs; read-only; rate-limited per token (`/health` exempt). Revocable via
+  `bbv2 token revoke <label|token>` (sets `revoked_at`; revoked tokens fail auth).
+- **CORS + bind are env-driven** for the Tailscale family deploy: `ALLOWED_ORIGINS`
+  (explicit allowlist, never `*` with credentials) and `BBV2_SERVE_HOST`. Logs from
+  the unattended `tick`/`nightly` cron go to `BBV2_LOG_DIR` via the `logging` module
+  (configured in `cli.main`).
 
 ## Frontend
 

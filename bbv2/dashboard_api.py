@@ -197,11 +197,13 @@ def add_dashboard_routes(
     ) -> dict[str, Any]:
         _enforce_rate("create", user["id"], config.ratelimit_topic_create())
         _enforce_budget(user["id"])
+        # Meter the moderation LLM call to the acting user (tests inject a stub).
+        mod_gen = moderate_generate or usage.metered_generate(store, user["id"], "moderation")
         try:
             clean = moderate_topic(
                 body.get("slug") or "",
                 body.get("name") or body.get("slug") or "",
-                moderate_generate,
+                mod_gen,
                 fail_closed=config.moderation_fail_closed(),
             )
         except ModerationError as exc:
@@ -297,6 +299,13 @@ def add_dashboard_routes(
     def reject(source_id: int, user: dict = Depends(require_admin)) -> dict[str, Any]:
         store.set_source_status(source_id, "rejected")
         return {"ok": True}
+
+    @router.post("/topics/{slug}/sources/approve-all")
+    def approve_all(slug: str, user: dict = Depends(require_admin)) -> dict[str, Any]:
+        """Approve every candidate source on a topic in one transaction — avoids
+        the frontend firing N parallel approve POSTs."""
+        approved = store.approve_all_candidates(slug)
+        return {"ok": True, "approved": approved}
 
     @router.get("/headlines")
     def headlines(

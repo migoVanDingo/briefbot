@@ -16,29 +16,6 @@ from .util import json_dumps, utc_now_iso
 class DashboardQueriesMixin:
     conn: sqlite3.Connection  # provided by Store
 
-    # ---- topic relevance keywords ----
-    def get_topic_keywords(self, topic_slug: str) -> list[str]:
-        row = self.conn.execute(
-            "SELECT keywords_json FROM topics WHERE slug = ?", (topic_slug,)
-        ).fetchone()
-        if not row or not row["keywords_json"]:
-            return []
-        import json
-
-        try:
-            return list(json.loads(row["keywords_json"]))
-        except Exception:
-            return []
-
-    def set_topic_keywords(self, topic_slug: str, keywords: list[str]) -> None:
-        import json
-
-        self.conn.execute(
-            "UPDATE topics SET keywords_json = ? WHERE slug = ?",
-            (json.dumps(keywords), topic_slug),
-        )
-        self.conn.commit()
-
     # ---- relevance quickscan (LLM review of item↔topic mappings) ----
     def pending_relevance(self, topic_slug: str, limit: int = 200) -> list[sqlite3.Row]:
         """Items mapped to the topic but not yet relevance-reviewed."""

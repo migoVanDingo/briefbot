@@ -31,7 +31,6 @@ CREATE TABLE IF NOT EXISTS topics (
     slug TEXT NOT NULL UNIQUE,
     name TEXT NOT NULL,
     description TEXT,
-    keywords_json TEXT,
     discover_interval_min INTEGER,
     collect_interval_min INTEGER,
     last_discovered_at TEXT,
@@ -98,7 +97,8 @@ CREATE TABLE IF NOT EXISTS discovered_feeds (
 CREATE TABLE IF NOT EXISTS api_tokens (
     token TEXT NOT NULL PRIMARY KEY,
     label TEXT NOT NULL,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    revoked_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS token_topics (
@@ -222,6 +222,11 @@ class Store(
         self._is_memory = path == ":memory:"
         self._check_same_thread = check_same_thread
         self._local = threading.local()
+        # Track every per-thread connection so `close_all()` (server shutdown) can
+        # release them — otherwise each threadpool worker's connection lives for the
+        # whole process. `_new_conn` registers here under the lock.
+        self._all_conns: list[sqlite3.Connection] = []
+        self._conns_lock = threading.Lock()
         # The API serves requests on a threadpool. A single shared sqlite connection
         # is NOT safe for concurrent writes (commits interleave → "cannot commit").
         # For a file DB each thread gets its OWN connection (WAL handles concurrency).
@@ -243,6 +248,8 @@ class Store(
         if not self._is_memory:
             # Wait (don't error) up to 5s if another thread holds the write lock.
             conn.execute("PRAGMA busy_timeout=5000")
+        with self._conns_lock:
+            self._all_conns.append(conn)
         return conn
 
     @property
@@ -259,7 +266,6 @@ class Store(
         """Add columns introduced after a DB was first created (idempotent)."""
         for table, col, decl in (
             ("item_topics", "relevant", "INTEGER"),
-            ("topics", "keywords_json", "TEXT"),
             ("topics", "discover_interval_min", "INTEGER"),
             ("topics", "collect_interval_min", "INTEGER"),
             ("topics", "last_discovered_at", "TEXT"),
@@ -267,6 +273,7 @@ class Store(
             ("sources", "collect_interval_min", "INTEGER"),
             ("sources", "last_collected_at", "TEXT"),
             ("user_settings", "onboarded_at", "TEXT"),
+            ("api_tokens", "revoked_at", "TEXT"),
         ):
             try:
                 self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
@@ -281,6 +288,20 @@ class Store(
         if conn is not None:
             conn.close()
             self._local.conn = None
+
+    def close_all(self) -> None:
+        """Close every connection opened across threads (server shutdown)."""
+        if self._shared is not None:
+            self._shared.close()
+            return
+        with self._conns_lock:
+            conns, self._all_conns = self._all_conns, []
+        for conn in conns:
+            try:
+                conn.close()
+            except sqlite3.Error:
+                pass
+        self._local = threading.local()
 
     # ---- topics ----
     def add_topic(self, slug: str, name: str, description: str = "") -> int:

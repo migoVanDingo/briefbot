@@ -64,7 +64,11 @@ def request_with_backoff(
             continue
         if resp.status_code not in retry or attempt == max_attempts:
             return resp
-        sleep(_delay(attempt, base_delay, max_delay, resp.headers.get("Retry-After"), rand))
+        # Close the discarded response before retrying — for a streamed response
+        # (safe_get) this releases the pooled connection instead of leaking it.
+        retry_after = resp.headers.get("Retry-After")
+        resp.close()
+        sleep(_delay(attempt, base_delay, max_delay, retry_after, rand))
     if resp is not None:  # pragma: no cover - loop always returns/raises first
         return resp
     raise last_exc or RuntimeError("request_with_backoff made no attempts")

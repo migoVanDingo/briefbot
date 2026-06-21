@@ -38,6 +38,28 @@ def http_timeout() -> int:
         return 20
 
 
+def allow_private_fetch() -> bool:
+    """Allow outbound fetches to resolve to private/reserved IPs. Default False so
+    user-driven fetches (chat summarize, discovery, RSS) can't be steered at
+    internal/metadata addresses. Set BBV2_ALLOW_PRIVATE_FETCH=true for local dev."""
+    return _bool_env("BBV2_ALLOW_PRIVATE_FETCH", False)
+
+
+def allowed_origins() -> list[str]:
+    """CORS allowlist for the dashboard. An explicit list — never '*' with
+    credentials. Defaults to the local Vite dev origins; set ALLOWED_ORIGINS
+    (comma-separated) to add the Tailscale origin(s) for the family deploy."""
+    raw = os.getenv("ALLOWED_ORIGINS", "")
+    origins = [o.strip().rstrip("/") for o in raw.split(",") if o.strip()]
+    return origins or ["http://localhost:5180", "http://127.0.0.1:5180"]
+
+
+def serve_host() -> str:
+    """Default bind host for `bbv2 serve` (override per-run with --host). Set
+    BBV2_SERVE_HOST to the tailscale interface address for the family deploy."""
+    return os.getenv("BBV2_SERVE_HOST", "127.0.0.1")
+
+
 def brave_api_key() -> str | None:
     return os.getenv("BRAVESEARCH_API_KEY") or None
 
@@ -84,7 +106,7 @@ def firebase_config_path() -> str | None:
 
 def dashboard_url() -> str:
     """Public dashboard base URL, used in the nightly 'brief ready' email link."""
-    return (os.getenv("DASHBOARD_URL") or "http://localhost:5173").rstrip("/")
+    return (os.getenv("DASHBOARD_URL") or "http://localhost:5180").rstrip("/")
 
 
 def admin_emails() -> set[str]:
@@ -180,6 +202,13 @@ def max_sources_per_topic() -> int:
 def max_stories_per_source() -> int:
     """Cap on stories ingested per source per collect (newest first)."""
     return _int_env("MAX_STORIES_PER_SOURCE", 7)
+
+
+def collect_max_age_days() -> int:
+    """Drop feed items whose published_at is older than this many days at collect
+    time — some feeds carry stale entries that would pollute the archive. Set
+    BBV2_COLLECT_MAX_AGE_DAYS=0 to disable the cutoff."""
+    return _int_env("BBV2_COLLECT_MAX_AGE_DAYS", 14)
 
 
 def onboard_brief_window_min() -> int:

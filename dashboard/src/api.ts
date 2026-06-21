@@ -35,6 +35,7 @@ async function streamSSE(
   path: string,
   body: unknown,
   onEvent: (ev: Record<string, unknown>) => void,
+  signal?: AbortSignal,
 ): Promise<void> {
   const user = auth.currentUser;
   const token = user ? await user.getIdToken() : null;
@@ -45,12 +46,14 @@ async function streamSSE(
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     body: JSON.stringify(body ?? {}),
+    signal,
   });
   if (!res.ok || !res.body) throw new Error(await errMessage(res));
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buf = "";
   for (;;) {
+    if (signal?.aborted) break; // component unmounted — stop reading
     const { done, value } = await reader.read();
     if (done) break;
     buf += decoder.decode(value, { stream: true });
@@ -260,7 +263,8 @@ export const api = {
   provisionTopic: (
     slug: string,
     onEvent: (ev: Record<string, unknown>) => void,
-  ) => streamSSE(`/api/topics/${slug}/provision`, {}, onEvent),
+    signal?: AbortSignal,
+  ) => streamSSE(`/api/topics/${slug}/provision`, {}, onEvent, signal),
   subscribe: (slug: string) =>
     req(`/api/topics/${slug}/subscribe`, { method: "POST" }),
   unsubscribe: (slug: string) =>
@@ -284,6 +288,11 @@ export const api = {
     ).then((d) => d.sources),
   approve: (id: number) =>
     req(`/api/sources/${id}/approve`, { method: "POST" }),
+  approveAll: (slug: string) =>
+    req<{ ok: boolean; approved: number }>(
+      `/api/topics/${slug}/sources/approve-all`,
+      { method: "POST" },
+    ),
   reject: (id: number) => req(`/api/sources/${id}/reject`, { method: "POST" }),
   storySources: () =>
     req<{ sources: string[] }>("/api/stories/sources").then((d) => d.sources),
@@ -353,5 +362,6 @@ export const api = {
     id: string,
     content: string,
     onEvent: (ev: Record<string, unknown>) => void,
-  ) => streamSSE(`/api/conversations/${id}/messages`, { content }, onEvent),
+    signal?: AbortSignal,
+  ) => streamSSE(`/api/conversations/${id}/messages`, { content }, onEvent, signal),
 };

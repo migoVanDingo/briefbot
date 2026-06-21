@@ -16,8 +16,6 @@ import json
 from datetime import datetime, timezone
 from typing import Any, Callable, Iterator
 
-import requests
-
 from . import config
 from .agent_tools import TOOL_SCHEMAS
 from .cluster import cluster_items
@@ -120,12 +118,10 @@ def _fetch_text(url: str, max_chars: int = 6000) -> str:
     try:
         from bs4 import BeautifulSoup
 
-        from .httpclient import request_with_backoff
+        from .safefetch import safe_get
 
-        r = request_with_backoff(
-            lambda: requests.get(
-                url, timeout=15, headers={"User-Agent": config.USER_AGENT}
-            )
+        r = safe_get(
+            url, timeout=15, headers={"User-Agent": config.USER_AGENT}
         )
         if r.status_code >= 400:
             return ""
@@ -345,11 +341,13 @@ def _create_topic_events(
     if not gate["allowed"]:
         return {"error": gate["message"], "limit_reached": True}, "limit reached"
 
+    # Meter the moderation LLM call to the acting user (tests inject a stub).
+    mod_gen = moderate_generate or metered_generate(store, user_id, "moderation")
     try:
         clean = moderate_topic(
             _slugify(name),
             name,
-            moderate_generate,
+            mod_gen,
             fail_closed=config.moderation_fail_closed(),
         )
     except ModerationError as exc:

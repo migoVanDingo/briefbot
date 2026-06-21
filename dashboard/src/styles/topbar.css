@@ -1,0 +1,96 @@
+/* ---- top bar ---- */
+.app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 12px 20px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+.brand {
+  font-weight: 800;
+  font-size: 17px;
+  letter-spacing: 0.2px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.brand-mark {
+  color: var(--accent);
+}
+.nav {
+  display: flex;
+  gap: 4px;
+}
+.nav-link {
+  text-decoration: none;
+  color: var(--dim);
+  font-weight: 600;
+  font-size: 14px;
+  padding: 7px 12px;
+  border-radius: var(--radius);
+  border-bottom: 2px solid transparent;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.nav-ico {
+  opacity: 0.85;
+}
+.nav-link:hover {
+  color: var(--text);
+  background: var(--surface2);
+}
+.nav-link.active {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+.topbar-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.who {
+  color: var(--dim);
+  font-size: 13px;
+}
+
+.content {
+  flex: 1;
+  padding: 24px 20px;
+  width: 100%;
+}
+.page {
+  max-width: 900px;
+  margin: 0 auto;
+}
+.page.wide {
+  max-width: 1200px;
+}
+.page.narrow {
+  max-width: 460px;
+}
+.page-title {
+  font-size: 22px;
+  margin: 0 0 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.title-ico {
+  color: var(--accent);
+}
+.sec-ico {
+  vertical-align: -4px;
+  margin-right: 4px;
+  color: var(--accent);
+}

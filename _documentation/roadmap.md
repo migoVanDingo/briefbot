@@ -76,46 +76,30 @@ Bigger directional bets — not yet specced. Each would get its own plan.
   multi-process deploy would need shared counters (SQLite/Redis). Outbound backoff
   is per-call (no global circuit breaker) — adequate at this scale.
 
-## Tech debt + security audit (end of 2026-06-20 session)
+## Tech debt + security audit
 
-**Security (matters for the Tailscale deploy to mom + brother):**
-- **CORS + bind are localhost-only.** `cli.cmd_serve` hardcodes
-  `allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"]` and `serve`
-  defaults `--host 127.0.0.1`. Reaching the app over **Tailscale** will fail CORS
-  and won't be reachable until both are opened to the tailnet origin/host. Make
-  these **env-driven** (`DASHBOARD_URL` / an `ALLOWED_ORIGINS` list; bind to the
-  tailscale interface). Do this before family use. *(Tailscale itself encrypts the
-  transport, so auth-over-the-wire is fine.)*
-- **SSRF surface.** `agent._fetch_text` (summarize) + future reader mode fetch
-  arbitrary story URLs; a malicious discovered feed could point at an internal/
-  metadata address. Low risk with trusted users, but add an allowlist/loopback +
-  private-IP block before any untrusted use.
-- **Consumer API tokens stored in plaintext** (`api_tokens`). Fine for personal;
-  hash them if the surface widens.
-- Good already: parameterized SQL throughout (no injection), markdown rendered
-  without raw HTML (no XSS), HTML-stripped ingest, Firebase-verified dashboard auth,
-  owner-only admin, rate limits + token budget, secrets gitignored.
+**The 2026-06-20 audit was cleared in plan `0016` (2026-06-21)** — SSRF guard,
+env-driven CORS/bind, token revoke, stale-item filter, moderation metering,
+logging, the CSS split, the `--surface2` var fix, SSE abort, and the dead-code
+removal all shipped (see Done). What remains is deliberately **[accepted]** at
+personal scale, plus the always-true "verified good" baseline.
 
-**Tech debt / refactoring:**
-- **`dashboard/src/styles/index.css` is ~1130 lines** — way over the 600 cap.
-  CLAUDE.md says split CSS by concern; carve into `styles/` per-area files.
-- **`print()`-based logging** across collect/provision/scheduler/nightly. Move to
-  the `logging` module so errors are filterable and timestamped (matters once cron
-  runs unattended).
-- **Approaching the cap:** `dashboard_api.py` (538), `agent.py` (516), `store.py`
-  (498), `cli.py` (454). Next growth → split route groups (admin/stories) like
-  `dashboard_favorites.py`, and the agent turn-loop vs tool execution.
-- **`/me` auto-marks onboarding** by side effect on a GET — works, but a GET
-  mutating state is a smell. Consider an explicit signal.
-- No structured **observability** (request logs, error capture, metrics).
+**Verified good (re-confirmed each audit):** parameterized SQL throughout (no
+injection), markdown without raw HTML (no XSS — react-markdown, no `rehype-raw`),
+HTML-stripped ingest, Firebase-verified auth on every route, owner-only admin
+gating, no IDOR, prompt-injection wrapped + fail-closed moderation, secrets
+gitignored.
 
-## Known bugs (low priority)
-
-- **Admin "Approve all"** uses `Promise.all` of approve POSTs. The shared-connection
-  cause is fixed (per-thread connections, 0-session), but a bulk-approve endpoint
-  would still be cleaner than N parallel writes.
-- **Stale items in collect** — some feeds carry old `published_at`, so old items
-  land in the archive. Fix: a recency filter in `bbv2/collect.py` before upsert.
+**[accepted] (left at personal scale — revisit if the surface widens):**
+- **Consumer-token *hashing*** — tokens are stored plaintext (now revocable). The
+  token is a PK+FK and a live trader token exists, so hashing is a risky migration
+  for marginal gain at family scale. Hash if the API ever faces untrusted clients.
+- **Near-cap files** (`dashboard_api.py` ~547, `store.py` ~521, `cli.py` ~499) —
+  all under the 600 cap; split when next substantially touched, not preemptively.
+- **`/me` auto-marks onboarding** on a GET (idempotent, own-user; a smell, harmless).
+- **In-memory single-process rate limiter** (idle keys now swept) + per-statement
+  autocommit — fine for one `bbv2 serve`; needs shared counters only for multi-worker.
+- No structured **observability** (request logs, error capture, metrics) — future.
 
 ## Done (for reference)
 
@@ -139,4 +123,12 @@ first-visit greeting fed into context) (0015). Post-0015 hardening: per-thread
 SQLite connections (fixed concurrent-write "cannot commit"), brief generated on
 topic-add during the initial setup window (account-age gated) with `headline_ready`
 signaling, per-topic source cap + per-source story cap + per-item collect
-resilience, last-accessed-chat restore, provisioning phrases in chat.
+resilience, last-accessed-chat restore, provisioning phrases in chat. **Tech-debt
++ hardening (0016):** SSRF-guarded outbound fetches (`safefetch.safe_get` — private-
+IP block, redirect re-validation, body cap; closes streamed-conn-on-retry leak),
+env-driven CORS/bind (`ALLOWED_ORIGINS`/`BBV2_SERVE_HOST`), consumer-token revoke,
+collect recency-cutoff + newest-first sort, topic-moderation LLM metering, raw-
+`requests`-error wrap in `llm`, `print()`→`logging` for cron, dead relevance-keyword
+path removed (incl. `keywords_json` column), bulk `approve-all` endpoint, SSE abort-
+on-unmount (Chat/TopicsHome), `index.css` split into per-area files + barrel, and
+the `--surface2`/`--accent2` CSS-var fix.
