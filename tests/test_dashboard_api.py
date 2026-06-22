@@ -17,10 +17,20 @@ def _allow_gen(*a, **k):  # default moderation stub → allow (no network)
     return '{"allowed": true, "category": "ok", "reason": "ok"}'
 
 
-def _client(store: Store, moderate_generate=_allow_gen) -> TestClient:
+AUTH = {"Authorization": "Bearer good"}
+
+
+def _client(store: Store, moderate_generate=_allow_gen, *, login: bool = True) -> TestClient:
     app = FastAPI()
     add_dashboard_routes(app, store, _fake_verifier, moderate_generate=moderate_generate)
-    return TestClient(app)
+    c = TestClient(app)
+    if login:
+        # Exchange the (fake) Firebase token for a bbv2 session; TestClient keeps
+        # the cookies, so later calls authenticate via the session (0019). The
+        # leftover `headers=AUTH` on those calls is harmless — the cookie wins.
+        r = c.post("/api/auth/exchange", headers=AUTH)
+        assert r.status_code == 200, r.text
+    return c
 
 
 @pytest.fixture(autouse=True)
@@ -29,11 +39,8 @@ def _reset_ratelimit():
     yield
 
 
-AUTH = {"Authorization": "Bearer good"}
-
-
 def test_auth_required():
-    c = _client(Store(":memory:", check_same_thread=False))
+    c = _client(Store(":memory:", check_same_thread=False), login=False)
     assert c.get("/api/me").status_code == 401
     assert c.get("/api/me", headers={"Authorization": "Bearer nope"}).status_code == 401
 
@@ -454,3 +461,45 @@ def test_conversations_crud():
         c.post("/api/conversations/nope/messages", json={"content": "hi"}, headers=AUTH).status_code
         == 404
     )
+
+
+def test_preferences_persist_and_validate():
+    store = Store(":memory:", check_same_thread=False)
+    c = _client(store)
+    me = c.get("/api/me", headers=AUTH).json()
+    assert me["preferences"] == {"theme": None, "accent": None}  # default: follow OS
+
+    assert c.patch("/api/preferences", json={"theme": "dark"}, headers=AUTH).status_code == 200
+    assert c.get("/api/me", headers=AUTH).json()["preferences"]["theme"] == "dark"
+
+    # accent persists; "" clears a value back to the default (NULL)
+    c.patch("/api/preferences", json={"accent": "#7c5cff"}, headers=AUTH)
+    assert c.get("/api/me", headers=AUTH).json()["preferences"]["accent"] == "#7c5cff"
+    c.patch("/api/preferences", json={"theme": ""}, headers=AUTH)
+    assert c.get("/api/me", headers=AUTH).json()["preferences"]["theme"] is None
+
+    # invalid values are rejected, leaving state untouched
+    assert c.patch("/api/preferences", json={"theme": "neon"}, headers=AUTH).status_code == 422
+    assert c.patch("/api/preferences", json={"accent": "x" * 40}, headers=AUTH).status_code == 422
+
+
+def test_ui_flags_round_trip():
+    store = Store(":memory:", check_same_thread=False)
+    c = _client(store)
+    assert c.get("/api/me", headers=AUTH).json()["flags"] == []
+
+    assert c.put("/api/flags/tour:headlines", headers=AUTH).status_code == 200
+    assert c.put("/api/flags/onboarding_done", headers=AUTH).status_code == 200
+    # idempotent
+    assert c.put("/api/flags/tour:headlines", headers=AUTH).status_code == 200
+
+    # flags survive a fresh /api/me — the localStorage-replay regression guard
+    flags = c.get("/api/me", headers=AUTH).json()["flags"]
+    assert flags == ["onboarding_done", "tour:headlines"]
+
+    # unknown flags can't fill the table
+    assert c.put("/api/flags/bogus", headers=AUTH).status_code == 422
+    assert c.delete("/api/flags/bogus", headers=AUTH).status_code == 422
+
+    assert c.delete("/api/flags/tour:headlines", headers=AUTH).status_code == 200
+    assert c.get("/api/me", headers=AUTH).json()["flags"] == ["onboarding_done"]

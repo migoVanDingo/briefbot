@@ -15,7 +15,12 @@
   text-align: center;
 }
 .login-brand {
-  font-size: 22px;
+  justify-content: center;
+  gap: 11px;
+  margin-bottom: 2px;
+}
+.login-brand .brand-text {
+  font-size: 26px;
 }
 .login-sub {
   color: var(--dim);

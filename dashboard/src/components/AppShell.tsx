@@ -9,14 +9,21 @@ import TopicIcon from "@mui/icons-material/TagOutlined";
 import AdminIcon from "@mui/icons-material/AdminPanelSettingsOutlined";
 import SettingsIcon from "@mui/icons-material/SettingsOutlined";
 import LogoutIcon from "@mui/icons-material/LogoutOutlined";
-import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import MenuIcon from "@mui/icons-material/Menu";
 import CloseIcon from "@mui/icons-material/Close";
 import { auth } from "../firebase";
+import { api } from "../api";
 import { useAuth } from "../state/auth";
 import { useHeadlinesNav } from "../state/headlinesNav";
 import { ThemeToggle } from "./ThemeToggle";
 import { OnboardingTour } from "./OnboardingTour";
+import { Logo } from "./Logo";
+
+// Revoke the bbv2 session server-side, then sign out of Firebase (0019).
+async function logout() {
+  await api.logout();
+  await signOut(auth);
+}
 
 const NAV = [
   { to: "/headlines", label: "Headlines", Icon: ArticleIcon, tour: "headlines" },
@@ -34,7 +41,10 @@ const menuLinkClass = ({ isActive }: { isActive: boolean }) =>
 
 export function AppShell() {
   const profile = useAuth((s) => s.profile);
-  const isAdmin = profile?.user.role === "admin";
+  // Subscribe to capabilities (not the stable `can` fn) so the admin link appears
+  // once the profile loads.
+  const caps = useAuth((s) => s.profile?.user.capabilities);
+  const isAdmin = !!caps && (caps.includes("*") || caps.includes("admin:read"));
   const headerRef = useRef<HTMLElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const location = useLocation();
@@ -77,7 +87,10 @@ export function AppShell() {
     <div className="app">
       <header className="topbar" ref={headerRef}>
         <div className="brand">
-          <AutoAwesomeIcon className="brand-mark" fontSize="small" /> briefbot
+          <Logo size={26} />
+          <span className="brand-text">
+            brief<span className="brand-accent">bot</span>
+          </span>
         </div>
         <nav className="nav">
           {NAV.map(({ to, label, Icon, tour }) => (
@@ -100,7 +113,7 @@ export function AppShell() {
           </NavLink>
           <span className="who">{profile?.user.name}</span>
           <ThemeToggle />
-          <button className="btn ghost icon-btn-text" onClick={() => signOut(auth)}>
+          <button className="btn ghost icon-btn-text" onClick={logout}>
             <LogoutIcon fontSize="small" />
             Sign out
           </button>
@@ -166,7 +179,7 @@ export function AppShell() {
                 className="menu-item"
                 onClick={() => {
                   setMenuOpen(false);
-                  signOut(auth);
+                  logout();
                 }}
               >
                 <LogoutIcon fontSize="small" className="nav-ico" />

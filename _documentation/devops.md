@@ -68,8 +68,17 @@ All five are `systemctl enable`d (or persist their own config) → survive reboo
   The serving host **must** be in Firebase Console → Authentication → Settings →
   **Authorized domains** (`briefbot.tailb058fe.ts.net` is added). Firebase rejects
   auth from unlisted domains — this is the #1 "can't log in" cause.
-- **Admin:** owner-only via `ADMIN_EMAILS` in the backend `.env` (no UI/API to
-  grant). That's the only way to get `/admin`.
+- **Admin:** the **owner** is bootstrapped owner-only via `ADMIN_EMAILS` in the
+  backend `.env` (no UI/API grants owner). The owner can then grant the `admin`
+  role to others (`bbv2 user set-role <email> admin` or the admin API), disable
+  accounts (`bbv2 user disable`), and force-revoke sessions (`bbv2 session revoke
+  --user`). RBAC is capability-based (`bbv2/rbac.py`).
+- **Sessions (0019):** login exchanges the Firebase token for a bbv2 session
+  (access JWT + refresh token, HttpOnly cookies). Set **`BBV2_JWT_SECRET`** in the
+  backend `.env` (random 48+ chars) so sessions survive restarts/deploys; set
+  **`BBV2_COOKIE_SECURE=true`** (served over HTTPS). Rotating `BBV2_JWT_SECRET`
+  invalidates live access tokens (users transparently re-mint on their next call);
+  refresh tokens in the DB survive. `bbv2 serve` warns loudly if the secret is unset.
 
 ## Configuration & secrets (live only on the VM)
 
@@ -78,7 +87,8 @@ across deploys by the rsync excludes:
 
 - `/home/briefbot/briefbot/.env` (chmod 600) — `FIREBASE_CONFIG` (path to the
   service-account JSON), `ANTHROPIC_API_KEY`, `GROK_API_KEY`, `BRAVESEARCH_API_KEY`,
-  `MAILGUN_*`, `ADMIN_EMAILS`, plus VM-specific:
+  `MAILGUN_*`, `ADMIN_EMAILS`, **`BBV2_JWT_SECRET`** (session signing, 0019),
+  **`BBV2_COOKIE_SECURE=true`**, plus VM-specific:
   `BBV2_SERVE_HOST=127.0.0.1`, `ALLOWED_ORIGINS` / `DASHBOARD_URL =
   https://briefbot.tailb058fe.ts.net`, `BBV2_DB_PATH`, `BBV2_LOG_DIR`.
 - `/home/briefbot/briefbot/config/briefbot-v2-firebase-adminsdk-*.json` — Firebase

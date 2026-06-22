@@ -1,12 +1,18 @@
 # bbv2 — Roadmap & backlog
 
-Phased build is tracked in [`../_plans/`](../_plans/) (shipped through `0015`).
-This file holds what's **left** — backlog and known rough edges.
+Phased build is tracked in [`../_plans/`](../_plans/) (shipped through `0019` —
+`0018` moved theme/tour state into the DB, `0019` added backend sessions +
+capability RBAC + a user-spaces foundation). This file holds what's **left** —
+backlog and known rough edges.
 
 ## Next (each its own plan)
 
-- **Settings:** per-user **accent color picker** (light accent is hardcoded blue
-  now) alongside the existing digest settings.
+- **Settings:** per-user **accent color picker** — the `user_settings.accent`
+  column + `PATCH /api/preferences {accent}` already exist (0018); this is now a
+  pure frontend task (picker UI → write `accent`, apply as a CSS var).
+- **User spaces (build on the 0019 foundation):** per-space scoping of topics/
+  headlines, a spaces UI, and invites/membership (`spaces` + `space_membership` +
+  capability scoping already in place; existing features are still global).
 - **Logo** to replace the `◆` brand-mark.
 - **Article images** on cards — extract `media:content`/`enclosure` when present,
   optional `og:image` scrape fallback (v1 never captured these).

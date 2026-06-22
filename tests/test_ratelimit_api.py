@@ -32,6 +32,8 @@ def test_dashboard_general_limit_blocks(monkeypatch):
     app = FastAPI()
     add_dashboard_routes(app, store, _fake_verifier)
     c = TestClient(app)
+    # Exchange for a session cookie first (not rate-limited — separate router).
+    assert c.post("/api/auth/exchange", headers=AUTH).status_code == 200
 
     # 3 allowed within the window, the 4th is throttled (any /api/* route counts).
     for _ in range(3):

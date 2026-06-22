@@ -14,17 +14,33 @@ async function errMessage(res: Response): Promise<string> {
   return body || `${res.status}`;
 }
 
-async function req<T>(path: string, opts: RequestInit = {}): Promise<T> {
-  const user = auth.currentUser;
-  const token = user ? await user.getIdToken() : null;
+// bbv2 auth (0019): the dashboard authenticates with an HttpOnly session cookie,
+// not a Bearer token. We exchange the Firebase ID token once (see `api.exchange`)
+// and thereafter send `credentials: "include"`. When the short-lived access token
+// has expired the API returns 401; we transparently hit /api/auth/session to
+// refresh (single-flight so concurrent requests share one refresh) and retry once.
+let refreshing: Promise<boolean> | null = null;
+function refreshSession(): Promise<boolean> {
+  if (!refreshing) {
+    refreshing = fetch(`${BASE}/api/auth/session`, { credentials: "include" })
+      .then((r) => r.ok)
+      .catch(() => false)
+      .finally(() => {
+        refreshing = null;
+      });
+  }
+  return refreshing;
+}
+
+async function req<T>(path: string, opts: RequestInit = {}, retry = true): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     ...opts,
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(opts.headers || {}),
-    },
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...(opts.headers || {}) },
   });
+  if (res.status === 401 && retry && (await refreshSession())) {
+    return req<T>(path, opts, false);
+  }
   if (!res.ok) throw new Error(await errMessage(res));
   return (res.status === 204 ? null : await res.json()) as T;
 }
@@ -36,18 +52,18 @@ async function streamSSE(
   body: unknown,
   onEvent: (ev: Record<string, unknown>) => void,
   signal?: AbortSignal,
+  retry = true,
 ): Promise<void> {
-  const user = auth.currentUser;
-  const token = user ? await user.getIdToken() : null;
   const res = await fetch(`${BASE}${path}`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body ?? {}),
     signal,
   });
+  if (res.status === 401 && retry && (await refreshSession())) {
+    return streamSSE(path, body, onEvent, signal, false);
+  }
   if (!res.ok || !res.body) throw new Error(await errMessage(res));
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
@@ -74,8 +90,11 @@ async function streamSSE(
 }
 
 export interface Me {
-  user: { id: number; email: string; name: string; role: string };
+  user: { id: number; email: string; name: string; role: string; capabilities: string[] };
   settings: { email_enabled: boolean; digest_limit: number };
+  // Per-user UI state persisted server-side (0018), not localStorage.
+  preferences: { theme: "light" | "dark" | null; accent: string | null };
+  flags: string[];
   subscriptions: string[];
   onboarded: boolean;
   greeting: string;
@@ -242,9 +261,35 @@ export interface CollectStats {
 }
 
 export const api = {
+  // Trade the current Firebase ID token for a bbv2 session cookie (0019). Called
+  // once after sign-in, before any other API call.
+  exchange: async () => {
+    const user = auth.currentUser;
+    if (!user) throw new Error("not signed in");
+    const token = await user.getIdToken();
+    const res = await fetch(`${BASE}/api/auth/exchange`, {
+      method: "POST",
+      credentials: "include",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) throw new Error(await errMessage(res));
+    return res.json();
+  },
+  // Revoke the bbv2 session server-side; the caller then signs out of Firebase.
+  logout: () =>
+    fetch(`${BASE}/api/auth/logout`, { method: "POST", credentials: "include" }).catch(
+      () => undefined,
+    ),
   me: () => req<Me>("/api/me"),
   usage: () => req<UsageStats>("/api/usage"),
   markOnboarded: () => req("/api/me/onboarded", { method: "POST" }),
+  // Server-persisted UI state (0018).
+  patchPreferences: (body: { theme?: string; accent?: string }) =>
+    req("/api/preferences", { method: "PATCH", body: JSON.stringify(body) }),
+  setFlag: (flag: string) =>
+    req(`/api/flags/${encodeURIComponent(flag)}`, { method: "PUT" }),
+  clearFlag: (flag: string) =>
+    req(`/api/flags/${encodeURIComponent(flag)}`, { method: "DELETE" }),
   topicRundown: (slug: string) =>
     req<{ rundown: Brief | null; reason?: string }>(
       `/api/topics/${slug}/rundown`,

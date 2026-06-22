@@ -9,6 +9,7 @@ python-dotenv==1.2.1
 fastapi==0.135.1
 uvicorn==0.41.0
 firebase-admin==7.0.0
+PyJWT==2.13.0     # bbv2-issued session access tokens (0019)
 
 # Dev
 pytest>=8.0

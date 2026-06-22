@@ -10,12 +10,15 @@ import json
 from datetime import datetime, timezone
 from typing import Any, Callable
 
-from fastapi import APIRouter, Body, Depends, FastAPI, Header, HTTPException
+from fastapi import APIRouter, Body, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
-from . import config, usage
+from . import config, rbac, usage
 from .api import _bearer, _item_dict
+from .authjwt import decode_access_token
+from .dashboard_chat import add_chat_routes
 from .dashboard_favorites import add_favorite_routes
+from .dashboard_prefs import add_prefs_routes
 from .moderation import ModerationError, moderate_topic, sanitize_name
 from .ratelimit import limiter
 from .store import Store
@@ -47,26 +50,40 @@ def _serialize_brief(topic_row: Any, brief_row: Any) -> dict[str, Any]:
     }
 
 
-def _make_current_user(store: Store, verifier: Verifier):
-    def current_user(authorization: str = Header(default="")) -> dict[str, Any]:
-        token = _bearer(authorization)
+def _make_current_user(store: Store):
+    """Dependency: authenticate via bbv2's OWN access token (0019), read from the
+    HttpOnly `access` cookie or an `Authorization: Bearer <access-jwt>` header.
+    The Firebase token is exchanged once at /api/auth/exchange — never here."""
+
+    def current_user(request: Request) -> dict[str, Any]:
+        token = request.cookies.get(config.cookie_access_name()) or _bearer(
+            request.headers.get("authorization", "")
+        )
         if not token:
-            raise HTTPException(status_code=401, detail="missing bearer token")
+            raise HTTPException(status_code=401, detail="not authenticated")
         try:
-            claims = verifier(token)
+            claims = decode_access_token(token)
+            uid = int(claims["sub"])
         except Exception:
-            raise HTTPException(status_code=401, detail="invalid token")
-        email = claims.get("email")
-        if not email:
-            raise HTTPException(status_code=401, detail="token has no email")
-        name = claims.get("name") or email.split("@")[0]
-        uid = store.add_user(name, email)  # upsert (auto-provision)
-        # Owner-only admin: promote on ADMIN_EMAILS match; never demote.
-        if email.lower() in config.admin_emails():
-            store.set_user_role(email, "admin")
-        row = store.get_user(email)
-        role = row["role"] if row else "human"
-        return {"id": uid, "email": email, "name": name, "role": role}
+            raise HTTPException(status_code=401, detail="invalid or expired session")
+        sid = claims.get("sid")
+        # Immediate revocation: a force-logged-out session stops working at once.
+        if not sid or not store.session_active(sid):
+            raise HTTPException(status_code=401, detail="session revoked")
+        row = store.get_user_by_id(uid)
+        if not row:
+            raise HTTPException(status_code=401, detail="unknown user")
+        if (row["status"] or "active") != "active":
+            raise HTTPException(status_code=403, detail="account disabled")
+        caps = rbac.global_capabilities(row["role"])
+        return {
+            "id": uid,
+            "email": row["email"],
+            "name": row["name"],
+            "role": row["role"],
+            "capabilities": sorted(caps),
+            "session_id": sid,
+        }
 
     return current_user
 
@@ -79,14 +96,27 @@ def add_dashboard_routes(
     moderate_generate: Any | None = None,
 ) -> None:
     """`moderate_generate` overrides the LLM used by topic moderation (tests
-    inject a stub so creation never hits the network)."""
-    current_user = _make_current_user(store, verifier)
+    inject a stub so creation never hits the network). `verifier` is the Firebase
+    ID-token verifier — used only by the auth-exchange route, not per request."""
+    current_user = _make_current_user(store)
     router = APIRouter(prefix="/api")
 
-    def require_admin(user: dict = Depends(current_user)) -> dict[str, Any]:
-        if user.get("role") != "admin":
-            raise HTTPException(status_code=403, detail="admin only")
-        return user
+    def require_capability(cap: str):
+        """Dependency factory: 403 unless the caller holds `cap` (owner has '*')."""
+
+        def dep(user: dict = Depends(current_user)) -> dict[str, Any]:
+            if not rbac.has_capability(set(user["capabilities"]), cap):
+                raise HTTPException(status_code=403, detail="forbidden")
+            return user
+
+        return dep
+
+    # Capability-gated dependencies replacing the old role=='admin' check. Owner
+    # and admin both satisfy these (admin holds the curation caps; owner holds '*').
+    require_curate = require_capability("topics:curate")
+    require_sources = require_capability("sources:approve")
+    require_brief = require_capability("brief:generate")
+    require_cadence = require_capability("cadence:set")
 
     def _enforce_rate(action: str, user_id: int, conf: tuple[int, float]) -> None:
         limit, window = conf
@@ -134,12 +164,17 @@ def add_dashboard_routes(
         if subs and not onboarded:
             store.mark_onboarded(user["id"])
             onboarded = True
+        # Don't leak the internal session id in the profile payload.
+        pub_user = {k: user[k] for k in ("id", "email", "name", "role", "capabilities")}
         return {
-            "user": user,
+            "user": pub_user,
             "settings": {
                 "email_enabled": bool(s["email_enabled"]),
                 "digest_limit": s["digest_limit"],
             },
+            # UI state that now lives in the DB (0018), not localStorage.
+            "preferences": {"theme": s["theme"], "accent": s["accent"]},
+            "flags": sorted(store.get_user_flags(user["id"])),
             "subscriptions": subs,
             "onboarded": onboarded,
             "greeting": GREETING,
@@ -166,10 +201,27 @@ def add_dashboard_routes(
             "blocked": not st["allowed"],
         }
 
+    @router.get("/spaces")
+    def list_spaces(user: dict = Depends(current_user)) -> dict[str, Any]:
+        """The caller's spaces + their membership role (0019 foundation). Every
+        user has at least a personal space, created at first login."""
+        return {
+            "spaces": [
+                {
+                    "id": s["id"],
+                    "type": s["type"],
+                    "name": s["name"],
+                    "role": s["role"],
+                    "is_owner": s["owner_user_id"] == user["id"],
+                }
+                for s in store.user_spaces(user["id"])
+            ]
+        }
+
     @router.get("/topics")
     def topics(user: dict = Depends(current_user)) -> dict[str, Any]:
         subs = {t["slug"] for t in store.user_subscriptions(user["id"])}
-        is_admin = user.get("role") == "admin"
+        is_admin = rbac.has_capability(set(user["capabilities"]), "admin:read")
         return {
             "topics": [
                 {
@@ -251,7 +303,7 @@ def add_dashboard_routes(
         return {"ok": True}
 
     @router.post("/topics/{slug}/discover")
-    def discover(slug: str, user: dict = Depends(require_admin)) -> dict[str, Any]:
+    def discover(slug: str, user: dict = Depends(require_curate)) -> dict[str, Any]:
         from .brave import DiscoveryError
         from .discovery import discover_sources
 
@@ -262,7 +314,7 @@ def add_dashboard_routes(
             raise HTTPException(status_code=400, detail=str(exc))
 
     @router.post("/topics/{slug}/collect")
-    def collect_topic(slug: str, user: dict = Depends(require_admin)) -> dict[str, Any]:
+    def collect_topic(slug: str, user: dict = Depends(require_curate)) -> dict[str, Any]:
         from .collect import collect as run_collect
 
         _topic_or_404(slug)
@@ -270,7 +322,7 @@ def add_dashboard_routes(
 
     @router.get("/topics/{slug}/sources")
     def sources(
-        slug: str, status: str = "active", user: dict = Depends(require_admin)
+        slug: str, status: str = "active", user: dict = Depends(require_sources)
     ) -> dict[str, Any]:
         if status == "candidate":
             rows = store.list_candidates(slug)
@@ -292,17 +344,17 @@ def add_dashboard_routes(
         }
 
     @router.post("/sources/{source_id}/approve")
-    def approve(source_id: int, user: dict = Depends(require_admin)) -> dict[str, Any]:
+    def approve(source_id: int, user: dict = Depends(require_sources)) -> dict[str, Any]:
         store.set_source_status(source_id, "active")
         return {"ok": True}
 
     @router.post("/sources/{source_id}/reject")
-    def reject(source_id: int, user: dict = Depends(require_admin)) -> dict[str, Any]:
+    def reject(source_id: int, user: dict = Depends(require_sources)) -> dict[str, Any]:
         store.set_source_status(source_id, "rejected")
         return {"ok": True}
 
     @router.post("/topics/{slug}/sources/approve-all")
-    def approve_all(slug: str, user: dict = Depends(require_admin)) -> dict[str, Any]:
+    def approve_all(slug: str, user: dict = Depends(require_sources)) -> dict[str, Any]:
         """Approve every candidate source on a topic in one transaction — avoids
         the frontend firing N parallel approve POSTs."""
         approved = store.approve_all_candidates(slug)
@@ -403,7 +455,7 @@ def add_dashboard_routes(
         }
 
     @router.post("/topics/{slug}/brief")
-    def generate_brief(slug: str, user: dict = Depends(require_admin)) -> dict[str, Any]:
+    def generate_brief(slug: str, user: dict = Depends(require_brief)) -> dict[str, Any]:
         """Generate (Haiku) + persist a topic's brief now. Admin/test affordance."""
         from .brief import build_brief
 
@@ -435,7 +487,7 @@ def add_dashboard_routes(
 
     @router.patch("/topics/{slug}/cadence")
     def set_topic_cadence(
-        slug: str, body: dict = Body(...), user: dict = Depends(require_admin)
+        slug: str, body: dict = Body(...), user: dict = Depends(require_cadence)
     ) -> dict[str, Any]:
         """Admin: per-topic source-discovery + story-collection cadence (minutes;
         0/empty clears the override → default)."""
@@ -449,105 +501,15 @@ def add_dashboard_routes(
 
     @router.patch("/sources/{source_id}/cadence")
     def set_source_cadence(
-        source_id: int, body: dict = Body(...), user: dict = Depends(require_admin)
+        source_id: int, body: dict = Body(...), user: dict = Depends(require_cadence)
     ) -> dict[str, Any]:
         """Admin: per-source story-collection cadence override (minutes)."""
         store.set_source_cadence(source_id, _opt_int(body.get("collect_interval_min")))
         return {"ok": True}
 
     add_favorite_routes(router, store, current_user)
-
-    # ---- chat / conversations ----
-    def _conv_dict(row: Any) -> dict[str, Any]:
-        return {
-            "id": row["id"],
-            "title": row["title"],
-            "created_at": row["created_at"],
-            "updated_at": row["updated_at"],
-            "message_count": row["message_count"] if "message_count" in row.keys() else None,
-        }
-
-    @router.post("/conversations")
-    def create_conversation(user: dict = Depends(current_user)) -> dict[str, Any]:
-        cid = store.create_conversation(user["id"])
-        return {"id": cid, "title": None, "message_count": 0}
-
-    @router.get("/conversations")
-    def list_conversations(user: dict = Depends(current_user)) -> dict[str, Any]:
-        return {
-            "conversations": [_conv_dict(r) for r in store.list_conversations(user["id"])]
-        }
-
-    def _conv_or_404(user_id: int, cid: str):
-        conv = store.get_conversation(user_id, cid)
-        if not conv:
-            raise HTTPException(status_code=404, detail="unknown conversation")
-        return conv
-
-    @router.get("/conversations/{cid}")
-    def get_conversation(cid: str, user: dict = Depends(current_user)) -> dict[str, Any]:
-        conv = _conv_or_404(user["id"], cid)
-        messages = [
-            {
-                "id": m["id"],
-                "role": m["role"],
-                "content": m["content"],
-                "tool_calls": json.loads(m["tool_calls_json"]) if m["tool_calls_json"] else [],
-                "created_at": m["created_at"],
-            }
-            for m in store.get_messages(cid)
-        ]
-        return {
-            "id": conv["id"],
-            "title": conv["title"],
-            "created_at": conv["created_at"],
-            "updated_at": conv["updated_at"],
-            "messages": messages,
-        }
-
-    @router.patch("/conversations/{cid}")
-    def rename_conversation(
-        cid: str, body: dict = Body(...), user: dict = Depends(current_user)
-    ) -> dict[str, Any]:
-        _conv_or_404(user["id"], cid)
-        title = (body.get("title") or "").strip()
-        if not title:
-            raise HTTPException(status_code=400, detail="title required")
-        store.set_conversation_title(user["id"], cid, title[:80])
-        return {"ok": True, "title": title[:80]}
-
-    @router.delete("/conversations/{cid}")
-    def delete_conversation(cid: str, user: dict = Depends(current_user)) -> dict[str, Any]:
-        if not store.delete_conversation(user["id"], cid):
-            raise HTTPException(status_code=404, detail="unknown conversation")
-        return {"ok": True}
-
-    @router.post("/conversations/{cid}/messages")
-    def post_message(
-        cid: str, body: dict = Body(...), user: dict = Depends(current_user)
-    ) -> StreamingResponse:
-        from .agent import run_chat_turn
-
-        _conv_or_404(user["id"], cid)
-        _enforce_rate("chat", user["id"], config.ratelimit_chat())
-        text = (body.get("content") or "").strip()
-        if not text:
-            raise HTTPException(status_code=400, detail="content required")
-
-        review_generate = usage.metered_relevance_generate(store, user["id"], "provision")
-
-        def gen():
-            for ev in run_chat_turn(
-                store,
-                user["id"],
-                cid,
-                text,
-                moderate_generate=moderate_generate,
-                review_generate=review_generate,
-            ):
-                yield f"data: {json.dumps(ev)}\n\n"
-
-        return StreamingResponse(gen(), media_type="text/event-stream")
+    add_prefs_routes(router, store, current_user)  # 0018 theme/flags
+    add_chat_routes(router, store, current_user, moderate_generate)  # chat/conversations
 
     @router.get("/settings")
     def get_settings(user: dict = Depends(current_user)) -> dict[str, Any]:
@@ -569,3 +531,9 @@ def add_dashboard_routes(
         return {"ok": True}
 
     app.include_router(router, dependencies=[Depends(_rate_limited)])
+
+    # Auth (exchange/session/logout) + owner-only user management. Mounted WITHOUT
+    # the per-user rate-limit dep — exchange runs before the user has a session.
+    from .auth_api import add_auth_routes
+
+    add_auth_routes(app, store, verifier, current_user, require_capability("user:manage"))

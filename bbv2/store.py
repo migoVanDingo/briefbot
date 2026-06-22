@@ -18,6 +18,8 @@ from .store_consumer import ConsumerTokenMixin
 from .store_dashboard import DashboardQueriesMixin
 from .store_favorites import FavoriteQueriesMixin
 from .store_schedule import SchedulerQueriesMixin
+from .store_sessions import SessionQueriesMixin
+from .store_spaces import SpaceQueriesMixin
 from .store_usage import UsageQueriesMixin
 from .store_users import UserQueriesMixin
 from .util import ensure_dir, json_dumps, utc_now_iso
@@ -112,7 +114,52 @@ CREATE TABLE IF NOT EXISTS users (
     name TEXT NOT NULL,
     email TEXT NOT NULL UNIQUE,
     role TEXT NOT NULL DEFAULT 'human',
+    status TEXT NOT NULL DEFAULT 'active',
+    last_login_at TEXT,
     created_at TEXT NOT NULL
+);
+
+-- Backend auth sessions (0019): opaque refresh tokens, revocable, with a rotation
+-- chain (replaced_by). The short-lived access JWT is stateless (see authjwt).
+CREATE TABLE IF NOT EXISTS user_sessions (
+    id TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    refresh_token TEXT NOT NULL UNIQUE,
+    expires_at TEXT NOT NULL,
+    last_active_at TEXT NOT NULL,
+    is_revoked INTEGER NOT NULL DEFAULT 0,
+    replaced_by TEXT,
+    ip TEXT,
+    user_agent TEXT,
+    created_at TEXT NOT NULL
+);
+
+-- Auth audit log (0019): login/refresh/logout/denied/revoked/disabled.
+CREATE TABLE IF NOT EXISTS auth_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    event TEXT NOT NULL,
+    ip TEXT,
+    user_agent TEXT,
+    created_at TEXT NOT NULL
+);
+
+-- User-spaces foundation (0019): blogs/learning/personalization. Existing
+-- features stay global for now; per-space scoping is a later plan.
+CREATE TABLE IF NOT EXISTS spaces (
+    id TEXT PRIMARY KEY,
+    owner_user_id INTEGER NOT NULL,
+    type TEXT NOT NULL DEFAULT 'personal',
+    name TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS space_membership (
+    space_id TEXT NOT NULL,
+    user_id INTEGER NOT NULL,
+    role TEXT NOT NULL DEFAULT 'viewer',
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (space_id, user_id)
 );
 
 CREATE TABLE IF NOT EXISTS subscriptions (
@@ -126,7 +173,18 @@ CREATE TABLE IF NOT EXISTS user_settings (
     email_enabled INTEGER NOT NULL DEFAULT 1,
     digest_limit INTEGER NOT NULL DEFAULT 10,
     last_digest_at TEXT,
-    onboarded_at TEXT
+    onboarded_at TEXT,
+    theme TEXT,
+    accent TEXT
+);
+
+-- Write-once per-user UI flags (tours seen, dismissed banners). Presence = set.
+-- Open-ended set keyed by string so a new tour needs no schema change (0018).
+CREATE TABLE IF NOT EXISTS user_flags (
+    user_id INTEGER NOT NULL,
+    flag TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, flag)
 );
 
 CREATE TABLE IF NOT EXISTS story_feedback (
@@ -203,6 +261,9 @@ CREATE INDEX IF NOT EXISTS idx_items_published ON items(published_at);
 CREATE INDEX IF NOT EXISTS idx_items_fetched ON items(fetched_at);
 CREATE INDEX IF NOT EXISTS idx_item_topics_topic ON item_topics(topic_id);
 CREATE INDEX IF NOT EXISTS idx_token_usage_user_time ON token_usage(user_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_user_sessions_user ON user_sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_auth_events_user_time ON auth_events(user_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_space_membership_user ON space_membership(user_id);
 """
 
 
@@ -215,6 +276,8 @@ class Store(
     SchedulerQueriesMixin,
     CacheQueriesMixin,
     UserQueriesMixin,
+    SessionQueriesMixin,
+    SpaceQueriesMixin,
 ):
     def __init__(self, db_path: str | Path, check_same_thread: bool = True) -> None:
         path = str(db_path)
@@ -273,7 +336,11 @@ class Store(
             ("sources", "collect_interval_min", "INTEGER"),
             ("sources", "last_collected_at", "TEXT"),
             ("user_settings", "onboarded_at", "TEXT"),
+            ("user_settings", "theme", "TEXT"),
+            ("user_settings", "accent", "TEXT"),
             ("api_tokens", "revoked_at", "TEXT"),
+            ("users", "status", "TEXT NOT NULL DEFAULT 'active'"),
+            ("users", "last_login_at", "TEXT"),
         ):
             try:
                 self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")

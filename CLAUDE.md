@@ -163,7 +163,8 @@ dashboard :5180).
 
 ## WHERE WE ARE — current state
 
-**Shipped & deployed** through `0017` + post-0017 polish. Working end-to-end:
+**Shipped & deployed** through `0019` (`0018` DB-persisted UI state · `0019` auth
+sessions + RBAC + spaces foundation). Working end-to-end:
 
 - **Routes:** `/headlines` (per-topic tabs; a left **date rail** of the last 10
   days *with briefs* → that day's AI brief + that day's stories), `/chat` (Haiku
@@ -176,16 +177,29 @@ dashboard :5180).
 - **Topic create flow:** tiered moderation (validation → keyword denylist → Haiku
   classifier) → SSE provision pipeline (discover→approve→collect→review→[brief]) →
   auto-subscribe. Rate-limited per user.
-- **Roles:** owner-only admin via `ADMIN_EMAILS` (no UI/API to grant).
+- **Auth (0019):** Firebase token **exchanged once** at `/api/auth/exchange` for a
+  bbv2 **session** — own access JWT + refresh token (rotation/revoke) in HttpOnly
+  cookies; `/api/auth/session` refresh, `/api/auth/logout`. **RBAC** is roles →
+  named capabilities (`bbv2/rbac.py`); owner bootstrapped via `ADMIN_EMAILS`, then
+  owner-grantable `admin`/`user`/`service` (CLI `user set-role/disable`, `session
+  revoke`; admin API). User `status` + `auth_events` audit. **Spaces foundation**:
+  a personal `space` per user (`/api/spaces`), per-space membership roles ready —
+  existing features still global.
+- **DB-persisted UI state (0018):** theme + tour-seen flags live in
+  `user_settings`/`user_flags` (via `/api/preferences` + `/api/flags`), so they
+  follow the account; localStorage is only an anti-FOUC theme mirror now.
 - **IDs:** prefixed ULIDs via `bbv2/ids.py`; dedupe on `dedupe_key`.
 - **Cost control:** per-user daily **token budget** (Haiku/Grok metered); LLM is
   user-invoked + background (tick/nightly to a system bucket). Moderation fails closed.
 - **Hardening (0016):** SSRF guard (`safefetch`), env-driven CORS/bind, consumer-token
-  revoke, collect recency filter, logging. **130+ pytest pass; dashboard build clean.**
+  revoke, collect recency filter, logging. **149 pytest pass; dashboard build clean.**
 
 ## Backlog / next (each its own plan — see `_documentation/roadmap.md`)
 
-- Settings accent **color picker**; **logo** + **article images** on cards.
+- Settings accent **color picker** (`accent` column + `/api/preferences` exist —
+  frontend-only now); **logo** + **article images** on cards.
+- **User spaces** — scope topics/headlines per space + spaces UI + invites (the
+  `0019` `spaces`/`space_membership` + capability scoping are the foundation).
 - **Persistent clusters** → Stories cluster/tag filters + better brief selection.
 - **Trader↔bbv2 integration:** the read-only **consumer API** (`/topics` `/items`)
   is built but **not yet proxied by nginx** (its root paths collide with SPA routes)

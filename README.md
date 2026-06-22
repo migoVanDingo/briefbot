@@ -34,8 +34,14 @@ a Vite/React dashboard with Firebase auth:
   `subscribe_topic`), searches/summarizes, and personalizes from a per-turn context
   block (subscriptions, token budget, available topics). First-visit onboarding:
   canned greeting + React-Joyride tour; new users' Headlines populate during setup.
-- **Roles + guardrails** — owner-only admin (`ADMIN_EMAILS`); tiered topic
-  moderation (validation → keyword → Haiku classifier); domain denylist.
+- **Auth, RBAC + spaces** — the Firebase token is exchanged once for a bbv2
+  **session** (own access JWT + revocable refresh token, HttpOnly cookies);
+  authorization is **capability-based** (`bbv2/rbac.py`), owner bootstrapped via
+  `ADMIN_EMAILS` then owner-grantable `admin`/`user`/`service`. Owners disable
+  accounts + revoke sessions; auth events are audited. Every user gets a personal
+  **space** (foundation for blogs/learning/personalization).
+- **Guardrails** — tiered topic moderation (validation → keyword → Haiku
+  classifier); domain denylist.
 - **Resilience + cost control** — all outbound calls retry with exponential
   backoff (`httpclient`); every inbound route is rate-limited (per-user dashboard,
   per-token consumer); a per-user daily **token budget** (default 100k) covers the

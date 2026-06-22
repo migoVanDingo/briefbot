@@ -32,6 +32,8 @@ CONVERSATION = "CON"
 MESSAGE = "MSG"
 USER = "USR"
 BRIEF = "BRF"
+SESSION = "SES"
+SPACE = "SPC"
 
 
 def _encode(value: int, length: int) -> str:

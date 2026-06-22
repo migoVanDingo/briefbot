@@ -20,13 +20,16 @@ def _allow_gen(*a, **k):
     return '{"allowed": true, "category": "ok", "reason": "ok"}'
 
 
+AUTH = {"Authorization": "Bearer good"}
+
+
 def _client(store: Store) -> TestClient:
     app = FastAPI()
     add_dashboard_routes(app, store, _fake_verifier, moderate_generate=_allow_gen)
-    return TestClient(app)
-
-
-AUTH = {"Authorization": "Bearer good"}
+    c = TestClient(app)
+    # Exchange the Firebase token for a bbv2 session cookie (0019).
+    assert c.post("/api/auth/exchange", headers=AUTH).status_code == 200
+    return c
 
 
 @pytest.fixture(autouse=True)

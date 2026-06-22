@@ -299,6 +299,8 @@ def test_me_marks_onboarded_when_returning_with_subscriptions():
     dashboard_api.add_dashboard_routes(app, store, verifier)
     c = TestClient(app)
     auth = {"Authorization": "Bearer good"}
+    # Exchange the Firebase token for a bbv2 session cookie (0019).
+    assert c.post("/api/auth/exchange", headers=auth).status_code == 200
 
     # First session: no subscriptions → stays not onboarded.
     assert c.get("/api/me", headers=auth).json()["onboarded"] is False

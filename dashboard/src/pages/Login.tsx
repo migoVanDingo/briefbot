@@ -7,6 +7,7 @@ import {
 } from "firebase/auth";
 import { auth } from "../firebase";
 import { useToasts } from "../state/toasts";
+import { Logo } from "../components/Logo";
 
 function errMessage(e: unknown): string {
   const msg = (e as { code?: string; message?: string })?.code ||
@@ -50,7 +51,10 @@ export function Login() {
     <div className="login">
       <div className="login-card">
         <div className="brand login-brand">
-          <span className="brand-mark" aria-hidden="true">◆</span> briefbot
+          <Logo size={40} />
+          <span className="brand-text">
+            brief<span className="brand-accent">bot</span>
+          </span>
         </div>
         <p className="login-sub">Your topic-driven news.</p>
 

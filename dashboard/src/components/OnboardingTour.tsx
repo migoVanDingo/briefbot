@@ -3,10 +3,11 @@ import { useNavigate } from "react-router-dom";
 import { Joyride, STATUS, type Step } from "react-joyride";
 import { useAuth } from "../state/auth";
 
-// Scripted, zero-cost guided tour shown once per browser on a user's first visit.
-// The agent's canned intro lives in the Chat page; this walks the nav so they know
-// the lay of the land.
-const TOUR_KEY = "bbv2_tour_done";
+// Scripted, zero-cost guided tour shown once per ACCOUNT on a user's first visit
+// (server-side flag, 0018 — survives a storage clear / new browser). The agent's
+// canned intro lives in the Chat page; this walks the nav so they know the lay of
+// the land.
+const ONBOARDING_FLAG = "onboarding_done";
 const STEPS: Step[] = [
   {
     target: '[data-tour="chat"]',
@@ -41,15 +42,17 @@ const STEPS: Step[] = [
 
 export function OnboardingTour() {
   const profile = useAuth((s) => s.profile);
+  const hasFlag = useAuth((s) => s.hasFlag);
+  const setFlag = useAuth((s) => s.setFlag);
   const navigate = useNavigate();
   const [run, setRun] = useState(false);
 
-  // The tour shows once per browser (localStorage), independent of the server-side
-  // `onboarded` flag — which intentionally stays false through the user's first
-  // session so every topic they add builds the first Headlines. We DON'T mark
-  // onboarded on tour completion (that would close the brief window too early).
-  const seen = typeof localStorage !== "undefined" && localStorage.getItem(TOUR_KEY);
-  const needsTour = !!profile && !profile.onboarded && !seen;
+  // The tour shows once per account (the `onboarding_done` flag), independent of
+  // the server-side `onboarded` flag — which intentionally stays false through the
+  // user's first session so every topic they add builds the first Headlines. We
+  // DON'T mark onboarded on tour completion (that would close the brief window
+  // too early); we only set the tour-seen flag.
+  const needsTour = !!profile && !profile.onboarded && !hasFlag(ONBOARDING_FLAG);
 
   useEffect(() => {
     if (needsTour) {
@@ -64,11 +67,7 @@ export function OnboardingTour() {
   const onEvent = (data: { status: string }) => {
     if (data.status === STATUS.FINISHED || data.status === STATUS.SKIPPED) {
       setRun(false);
-      try {
-        localStorage.setItem(TOUR_KEY, "1");
-      } catch {
-        /* private mode — fine, it just may re-show */
-      }
+      setFlag(ONBOARDING_FLAG); // persist "seen" to the account
     }
   };
 

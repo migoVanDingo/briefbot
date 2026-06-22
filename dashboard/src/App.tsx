@@ -4,6 +4,7 @@ import { onAuthStateChanged } from "firebase/auth";
 import { auth } from "./firebase";
 import { api } from "./api";
 import { useAuth } from "./state/auth";
+import { useThemeStore } from "./state/themeStore";
 import { useToasts } from "./state/toasts";
 import { Toasts } from "./components/Toasts";
 import { AppShell } from "./components/AppShell";
@@ -17,16 +18,18 @@ import { Topics } from "./pages/admin/Topics";
 import { TopicDetail } from "./pages/admin/TopicDetail";
 import { Settings } from "./pages/Settings";
 
-// Gate the admin area: non-admins are redirected to Headlines. (Enforcement is
-// on the backend via require_admin; this just hides the unreachable UI.)
+// Gate the admin area: users without the admin capability are redirected to
+// Headlines. (Enforcement is on the backend; this just hides the unreachable UI.)
 function RequireAdmin({ children }: { children: JSX.Element }) {
-  const role = useAuth((s) => s.profile?.user.role);
-  return role === "admin" ? children : <Navigate to="/headlines" replace />;
+  const caps = useAuth((s) => s.profile?.user.capabilities);
+  const ok = !!caps && (caps.includes("*") || caps.includes("admin:read"));
+  return ok ? children : <Navigate to="/headlines" replace />;
 }
 
 export default function App() {
   const status = useAuth((s) => s.status);
   const set = useAuth((s) => s.set);
+  const hydrateTheme = useThemeStore((s) => s.hydrate);
   const push = useToasts((s) => s.push);
 
   useEffect(() => {
@@ -36,14 +39,16 @@ export default function App() {
         return;
       }
       try {
+        await api.exchange(); // Firebase token → bbv2 session cookie (0019)
         const profile = await api.me();
         set({ status: "authed", user, profile });
+        hydrateTheme(profile.preferences.theme); // DB theme wins over the cache
       } catch {
         push("Signed in, but couldn't reach the bbv2 API.", "error");
         set({ status: "authed", user, profile: null });
       }
     });
-  }, [set, push]);
+  }, [set, push, hydrateTheme]);
 
   return (
     <>

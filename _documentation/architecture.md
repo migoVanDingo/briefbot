@@ -61,8 +61,11 @@ keeps one shared connection since each connection is a separate in-memory DB.
 `last_discovered_at`, `last_briefed_at`), `sources` (status + `collect_interval_min`,
 `last_collected_at`), `topic_sources`, `items` (+ `dedupe_key` UNIQUE),
 `item_topics` (+ `relevant`), `feed_cache`, `discovered_feeds`, `api_tokens`
-(+ `revoked_at`) + `token_topics`, `users` (role), `subscriptions`,
-`user_settings` (+ `onboarded_at`),
+(+ `revoked_at`) + `token_topics`, `users` (role, `status`, `last_login_at`),
+`subscriptions`, `user_settings` (+ `onboarded_at`, `theme`, `accent`),
+`user_flags` (write-once per-user UI flags: tours seen, 0018),
+`user_sessions` (refresh tokens, rotation/revoke, 0019), `auth_events` (audit),
+`spaces` + `space_membership` (user-spaces foundation, 0019),
 `story_feedback`, `briefs` (UNIQUE `topic_id,date` — also the shared rundown cache),
 `favorite_folders` + `favorite_links`, `conversations` + `conversation_messages`,
 `token_usage` (per-user + `system` (user_id 0) LLM spend).
@@ -95,8 +98,9 @@ ULID PK isn't content-derived; `store.upsert_item` returns the canonical id.
   populates the initial Headlines, while later topic-adds defer to nightly +
   on-demand rundowns (no per-add LLM cost). `create_topic` returns `headline_ready`
   so the agent tells the user whether their Headlines is ready now or coming
-  overnight. (`onboarded_at`, marked by `/me` on return-with-subscriptions, is now
-  only the React-Joyride tour's cross-device guard.) Rate-limited.
+  overnight. (`onboarded_at`, marked by `/me` on return-with-subscriptions, gates
+  whether the first-visit onboarding tour shows; "tour seen" itself is a per-user
+  `user_flags` row (0018), so it no longer replays on a storage clear.) Rate-limited.
 - **Tick** (`scheduler.py`, cron **hourly**): decoupled, due-based pull engine —
   per-topic **source discovery** (when `discover_interval_min` due) + per-source
   **collection** (effective interval = source override ?? tightest topic interval
@@ -122,7 +126,7 @@ ULID PK isn't content-derived; `store.upsert_item` returns the canonical id.
   on demand via the rundown endpoint.
 - **Onboarding** (first visit): the user lands on `/chat` with a canned Briefbot
   intro, names a topic (→ `create_topic`), and Headlines hydrates. The React-Joyride
-  tour shows once per browser (localStorage); `user_settings.onboarded_at` is the
+  tour shows once per **account** (`user_flags`, 0018); `user_settings.onboarded_at` is the
   separate **brief-gate** — marked by `/me` only once the user returns with
   subscriptions, so every topic added during the first session builds the brief.
 - **Chat** (`agent.py`, schemas in `agent_tools.py`): Haiku tool-use loop (≤8
@@ -146,15 +150,32 @@ ULID PK isn't content-derived; `store.upsert_item` returns the canonical id.
   `sanitize_name` → keyword denylist → Haiku classifier (injection-hardened,
   allowlists infosec, fail-closed). Denied topics are never persisted.
 
-## Auth & roles
+## Auth & roles (0019)
 
-- **Dashboard:** client Firebase ID token → `auth.verify_token`
-  (`firebase-admin`, clock-skew 10s) → `dashboard_api.current_user` auto-provisions
-  the user (upsert by email) and returns `role`.
-- **Owner-only admin:** `current_user` sets `role='admin'` **only** on an
-  `ADMIN_EMAILS` (env) match — there is no API/UI/CLI to promote. `require_admin`
-  403-gates the curation routes (discover/approve/reject/sources/collect/brief);
-  the frontend hides `/admin` and guards the route.
+- **Sessions (exchange model):** the client Firebase ID token is verified **once**
+  at `POST /api/auth/exchange` (`auth_api.py` → `auth.verify_token`, clock-skew 10s),
+  which upserts the user and opens a **session** — bbv2's own short-lived **access
+  JWT** (audience `bbv2.user.access`, `authjwt.py`) + an opaque **refresh token** in
+  `user_sessions` (rotation chain via `replaced_by`, revocable). Both are HttpOnly
+  cookies. Every other `/api/*` request authenticates against the access cookie
+  (`dashboard_api.current_user` → `decode_access_token` + `session_active` +
+  `status='active'`). The frontend refreshes via `GET /api/auth/session` (rotates
+  the refresh token) on a 401, and `POST /api/auth/logout` revokes the session.
+- **RBAC (roles → capabilities, `rbac.py`):** global roles `owner`/`admin`/`user`/
+  `service` (legacy `human` ≡ `user`) map to named capabilities (e.g.
+  `sources:approve`, `brief:generate`, `admin:read`); `owner` holds the wildcard
+  `*`. `require_capability(cap)` 403-gates the curation routes; `/api/me` returns
+  the caller's capabilities and the frontend gates UI on them (not on a role string).
+- **Owner-only bootstrap:** an `ADMIN_EMAILS` match at exchange sets `role='owner'`
+  (never demotes). `admin`/`user`/`service` are owner-grantable via CLI
+  (`bbv2 user set-role`) or `PATCH /api/auth/admin/users/{id}` — there is no
+  self-serve promotion. Owners can also disable accounts (`status='disabled'`,
+  blocked every request) and force-revoke sessions; auth events are logged to
+  `auth_events`.
+- **Spaces foundation (0019):** every user gets a personal `space` (+ `owner`
+  `space_membership`) at first login; `GET /api/spaces` lists them. Per-space
+  membership roles feed `rbac.resolve_capabilities`. Existing features stay
+  **global** for now — per-space scoping of topics/headlines is a later plan.
 - **Per-user scoping:** stories/headlines are scoped to subscriptions; favorites
   and conversations are per user.
 - **Consumer API:** opaque service tokens (`bbv2 token create`) scoped to topic
@@ -175,7 +196,10 @@ topbar collapses to a **hamburger menu** (+ theme toggle): main nav · a dynamic
 section (the Headlines topic tabs when on `/headlines`, via the shared
 `headlinesNav` store) · settings + sign-out. The page never scrolls horizontally
 (long text wraps; only the Headlines date rail scrolls sideways). SSE (chat + provision) is consumed via `fetch` +
-`ReadableStream` (`api.streamSSE`) so the Firebase bearer header can be attached.
+`ReadableStream` (`api.streamSSE`) with `credentials: "include"` (the session
+cookie, 0019), transparently refreshing once on a 401. Theme + tour-seen state is
+persisted server-side (`/api/preferences`, `/api/flags`, 0018); `theme.ts` keeps a
+localStorage mirror only to avoid a first-paint flash.
 **MUI** (`@mui/icons-material`) is used **selectively for icons** (nav, buttons,
 thumbs/star, chat user/agent avatars) — layout/theme stays custom CSS. A shared
 `StoryRow` (thumbs up/down + save) renders stories on Stories and Headlines; a
@@ -186,8 +210,9 @@ First-visit **onboarding** (`OnboardingTour`, react-joyride) gates on `me.onboar
 lands the user on `/chat` with a canned Briefbot intro, and walks the nav; admins
 get per-topic/source **cadence** controls on the topic-detail page. Each page
 (Headlines/Stories/Topics/Favorites) also has its own **one-time Joyride
-walkthrough** (`PageTour` + `lib/tours`, gated per-page in localStorage),
-relaunchable from a subtle ⓘ button by the page title.
+walkthrough** (`PageTour` + `lib/tours`, gated per-page by a server `user_flags`
+row, 0018), relaunchable from a subtle ⓘ button by the page title (and resettable
+from Settings → "Replay tutorials").
 
 ## Conventions / invariants
 

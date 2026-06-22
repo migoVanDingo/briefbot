@@ -51,8 +51,28 @@ class UserQueriesMixin:
             "SELECT * FROM users WHERE email = ?", (email,)
         ).fetchone()
 
+    def get_user_by_id(self, user_id: int) -> sqlite3.Row | None:
+        return self.conn.execute(
+            "SELECT * FROM users WHERE id = ?", (user_id,)
+        ).fetchone()
+
     def set_user_role(self, email: str, role: str) -> None:
         self.conn.execute("UPDATE users SET role = ? WHERE email = ?", (role, email))
+        self.conn.commit()
+
+    def set_user_status(self, email: str, status: str) -> None:
+        """active | disabled. A disabled user is blocked at exchange + every
+        request (current_user), and their sessions should be revoked separately."""
+        self.conn.execute(
+            "UPDATE users SET status = ? WHERE email = ?", (status, email)
+        )
+        self.conn.commit()
+
+    def touch_last_login(self, user_id: int) -> None:
+        self.conn.execute(
+            "UPDATE users SET last_login_at = ? WHERE id = ?",
+            (utc_now_iso(), user_id),
+        )
         self.conn.commit()
 
     def list_users(self) -> list[sqlite3.Row]:
@@ -95,6 +115,8 @@ class UserQueriesMixin:
         email_enabled: bool | None = None,
         digest_limit: int | None = None,
         last_digest_at: str | None = None,
+        theme: str | None = None,
+        accent: str | None = None,
     ) -> None:
         self.get_user_settings(user_id)  # ensure row exists
         sets: list[str] = []
@@ -108,11 +130,40 @@ class UserQueriesMixin:
         if last_digest_at is not None:
             sets.append("last_digest_at = ?")
             params.append(last_digest_at)
+        # theme/accent: explicit "" clears back to "follow OS / default" (NULL);
+        # None means "leave unchanged" (matches the other fields' semantics).
+        if theme is not None:
+            sets.append("theme = ?")
+            params.append(theme or None)
+        if accent is not None:
+            sets.append("accent = ?")
+            params.append(accent or None)
         if not sets:
             return
         params.append(user_id)
         self.conn.execute(
             f"UPDATE user_settings SET {', '.join(sets)} WHERE user_id = ?", params
+        )
+        self.conn.commit()
+
+    # ---- UI flags (write-once "seen" markers — tours, dismissed banners) ----
+
+    def get_user_flags(self, user_id: int) -> set[str]:
+        rows = self.conn.execute(
+            "SELECT flag FROM user_flags WHERE user_id = ?", (user_id,)
+        ).fetchall()
+        return {r["flag"] for r in rows}
+
+    def set_user_flag(self, user_id: int, flag: str) -> None:
+        self.conn.execute(
+            "INSERT OR IGNORE INTO user_flags (user_id, flag, created_at) VALUES (?, ?, ?)",
+            (user_id, flag, utc_now_iso()),
+        )
+        self.conn.commit()
+
+    def clear_user_flag(self, user_id: int, flag: str) -> None:
+        self.conn.execute(
+            "DELETE FROM user_flags WHERE user_id = ? AND flag = ?", (user_id, flag)
         )
         self.conn.commit()
 

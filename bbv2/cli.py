@@ -171,9 +171,17 @@ def cmd_serve(args: argparse.Namespace) -> None:
     from .auth import verify_token
     from .dashboard_api import add_dashboard_routes
 
+    if config.jwt_secret_is_default():
+        print(
+            "WARNING: BBV2_JWT_SECRET is unset — using an ephemeral per-process "
+            "secret. Sessions won't survive a restart. Set it in production "
+            "(see _documentation/devops.md)."
+        )
+
     # check_same_thread=False: API serves on a threadpool over one connection (WAL).
     store = Store(config.db_path(), check_same_thread=False)
     app = create_app(store)  # consumer API (service tokens)
+    # add_dashboard_routes also wires /api/auth/* (Firebase exchange → bbv2 session).
     add_dashboard_routes(app, store, verify_token)  # /api/* (Firebase)
     app.add_middleware(
         CORSMiddleware,
@@ -232,7 +240,53 @@ def cmd_user_add(args: argparse.Namespace) -> None:
 def cmd_user_list(_: argparse.Namespace) -> None:
     store = _store()
     for u in store.list_users():
-        print(f"id={u['id']:<3} {u['name']:16} {u['email']:28} {u['role']}")
+        status = (u["status"] if "status" in u.keys() else "active") or "active"
+        last = (u["last_login_at"] if "last_login_at" in u.keys() else None) or "-"
+        print(
+            f"id={u['id']:<3} {u['name']:16} {u['email']:28} "
+            f"{u['role']:7} {status:8} last_login={last}"
+        )
+    store.close()
+
+
+def cmd_user_set_role(args: argparse.Namespace) -> None:
+    store = _store()
+    user = _require_user(store, args.email)
+    if user["role"] == "owner":
+        raise SystemExit("refusing to change the owner role (bootstrap via ADMIN_EMAILS)")
+    if args.role not in ("admin", "user", "service"):
+        raise SystemExit("role must be one of: admin, user, service")
+    store.set_user_role(args.email, args.role)
+    print(f"{args.email} role → {args.role}")
+    store.close()
+
+
+def cmd_user_disable(args: argparse.Namespace) -> None:
+    store = _store()
+    user = _require_user(store, args.email)
+    if user["role"] == "owner":
+        raise SystemExit("refusing to disable the owner")
+    store.set_user_status(args.email, "disabled")
+    n = store.revoke_user_sessions(int(user["id"]))
+    store.log_auth_event(int(user["id"]), "disabled")
+    print(f"{args.email} disabled; revoked {n} active session(s)")
+    store.close()
+
+
+def cmd_user_enable(args: argparse.Namespace) -> None:
+    store = _store()
+    _require_user(store, args.email)
+    store.set_user_status(args.email, "active")
+    print(f"{args.email} enabled")
+    store.close()
+
+
+def cmd_session_revoke(args: argparse.Namespace) -> None:
+    store = _store()
+    user = _require_user(store, args.user)
+    n = store.revoke_user_sessions(int(user["id"]))
+    store.log_auth_event(int(user["id"]), "revoked")
+    print(f"revoked {n} active session(s) for {args.user}")
     store.close()
 
 
@@ -423,6 +477,22 @@ def build_parser() -> argparse.ArgumentParser:
     p_ua.add_argument("--role", default="human", choices=["human", "service"])
     p_ua.set_defaults(func=cmd_user_add)
     user_sub.add_parser("list").set_defaults(func=cmd_user_list)
+    p_usr = user_sub.add_parser("set-role")
+    p_usr.add_argument("email")
+    p_usr.add_argument("role", choices=["admin", "user", "service"])
+    p_usr.set_defaults(func=cmd_user_set_role)
+    p_udis = user_sub.add_parser("disable")
+    p_udis.add_argument("email")
+    p_udis.set_defaults(func=cmd_user_disable)
+    p_uen = user_sub.add_parser("enable")
+    p_uen.add_argument("email")
+    p_uen.set_defaults(func=cmd_user_enable)
+
+    p_session = sub.add_parser("session")
+    session_sub = p_session.add_subparsers(dest="session_cmd", required=True)
+    p_srev = session_sub.add_parser("revoke")
+    p_srev.add_argument("--user", required=True)
+    p_srev.set_defaults(func=cmd_session_revoke)
 
     p_sub = sub.add_parser("subscribe")
     p_sub.add_argument("--user", required=True)

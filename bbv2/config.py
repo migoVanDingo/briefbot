@@ -116,6 +116,56 @@ def admin_emails() -> set[str]:
     return {e.strip().lower() for e in raw.split(",") if e.strip()}
 
 
+# ---- Auth sessions (0019): own access JWT + refresh token over cookies ----
+
+import secrets as _secrets
+
+# Process-stable fallback secret when BBV2_JWT_SECRET is unset (dev). Tokens then
+# don't survive a restart — fine locally; `bbv2 serve` warns. Set BBV2_JWT_SECRET
+# in production (see _documentation/devops.md) so sessions persist across deploys.
+_FALLBACK_JWT_SECRET = _secrets.token_urlsafe(48)
+
+
+def jwt_secret() -> str:
+    return os.getenv("BBV2_JWT_SECRET") or _FALLBACK_JWT_SECRET
+
+
+def jwt_secret_is_default() -> bool:
+    """True when no BBV2_JWT_SECRET is configured (ephemeral per-process secret)."""
+    return not os.getenv("BBV2_JWT_SECRET")
+
+
+def access_ttl_s() -> int:
+    """Lifetime of the short-lived access JWT (default 15 min)."""
+    return _int_env("BBV2_ACCESS_TTL_S", 900)
+
+
+def refresh_ttl_s() -> int:
+    """Lifetime of the opaque refresh token / session (default 30 days)."""
+    return _int_env("BBV2_REFRESH_TTL_S", 2_592_000)
+
+
+def cookie_access_name() -> str:
+    return os.getenv("BBV2_COOKIE_ACCESS", "bbv2_access")
+
+
+def cookie_refresh_name() -> str:
+    return os.getenv("BBV2_COOKIE_REFRESH", "bbv2_refresh")
+
+
+def cookie_secure() -> bool:
+    """Mark auth cookies Secure (HTTPS-only). Default False for local http dev;
+    set BBV2_COOKIE_SECURE=true for the Tailscale HTTPS deploy."""
+    return _bool_env("BBV2_COOKIE_SECURE", False)
+
+
+def cookie_samesite() -> str:
+    """SameSite policy for auth cookies. Strict is safe because the dashboard and
+    API are same-site (nginx proxies /api in prod; same host in dev)."""
+    val = (os.getenv("BBV2_COOKIE_SAMESITE", "strict") or "strict").strip().lower()
+    return val if val in {"strict", "lax", "none"} else "strict"
+
+
 def moderation_fail_closed() -> bool:
     """If the LLM moderation call fails, deny by default (safer). Set
     `MODERATION_FAIL_OPEN=true` to allow-on-error instead."""

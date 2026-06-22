@@ -1,13 +1,31 @@
 import { useEffect, useState } from "react";
 import SettingsIcon from "@mui/icons-material/SettingsOutlined";
 import SaveIcon from "@mui/icons-material/SaveOutlined";
+import ReplayIcon from "@mui/icons-material/ReplayOutlined";
 import { api, type Settings as S } from "../api";
+import { useAuth } from "../state/auth";
 import { useToasts } from "../state/toasts";
+
+// Tutorial flags reset by "Replay tutorials" (the per-page tours + the global
+// onboarding walkthrough). Mirrors the server-side ALLOWED_FLAGS.
+const TUTORIAL_FLAGS = [
+  "onboarding_done",
+  "tour:headlines",
+  "tour:stories",
+  "tour:topics",
+  "tour:favorites",
+];
 
 export function Settings() {
   const push = useToasts((s) => s.push);
+  const clearFlag = useAuth((s) => s.clearFlag);
   const [settings, setSettings] = useState<S | null>(null);
   const [saving, setSaving] = useState(false);
+
+  const replayTutorials = () => {
+    TUTORIAL_FLAGS.forEach(clearFlag);
+    push("Tutorials will replay on your next visit to each page.", "success");
+  };
 
   useEffect(() => {
     api
@@ -72,6 +90,20 @@ export function Settings() {
           <SaveIcon fontSize="small" />
           {saving ? "Saving…" : "Save"}
         </button>
+      </div>
+
+      <div className="card form">
+        <label className="field">
+          <span>Tutorials</span>
+          <button
+            className="btn ghost icon-btn-text"
+            onClick={replayTutorials}
+            type="button"
+          >
+            <ReplayIcon fontSize="small" />
+            Replay tutorials
+          </button>
+        </label>
       </div>
     </div>
   );

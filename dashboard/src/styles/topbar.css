@@ -16,15 +16,47 @@
   z-index: 10;
 }
 .brand {
-  font-weight: 800;
-  font-size: 17px;
-  letter-spacing: 0.2px;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 9px;
+  user-select: none;
 }
-.brand-mark {
-  color: var(--accent);
+.brand-logo {
+  display: block;
+  flex: none;
+  filter: drop-shadow(0 1px 3px color-mix(in srgb, var(--accent) 35%, transparent));
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.brand:hover .brand-logo {
+  transform: rotate(-6deg) scale(1.06);
+}
+/* var() resolves in CSS properties (not SVG presentation attrs) → colour here */
+.brand-logo .bb-g1 {
+  stop-color: var(--accent);
+}
+.brand-logo .bb-g2 {
+  stop-color: var(--accent2);
+}
+.brand-logo .bb-antenna {
+  stroke: var(--accent);
+}
+.brand-logo .bb-dot {
+  fill: var(--accent2);
+}
+.brand-text {
+  font-weight: 800;
+  font-size: 18px;
+  letter-spacing: -0.4px;
+  color: var(--text);
+  line-height: 1;
+}
+/* "bot" picks up the accent→accent2 gradient as clipped text */
+.brand-accent {
+  background: linear-gradient(95deg, var(--accent), var(--accent2));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
 }
 .nav {
   display: flex;

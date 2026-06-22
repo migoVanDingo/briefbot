@@ -30,7 +30,10 @@ AUTH = {"Authorization": "Bearer good"}
 def _client(store: Store) -> TestClient:
     app = FastAPI()
     dashboard_api.add_dashboard_routes(app, store, _fake_verifier, moderate_generate=lambda *a, **k: "{}")
-    return TestClient(app)
+    c = TestClient(app)
+    # Exchange the Firebase token for a bbv2 session cookie (0019).
+    assert c.post("/api/auth/exchange", headers=AUTH).status_code == 200
+    return c
 
 
 def _seed_topic_with_item(store: Store) -> int:

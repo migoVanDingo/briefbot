@@ -69,15 +69,32 @@ export function themeStyleSheet(): string {
 
 const KEY = "bbv2.theme";
 
-export function initialTheme(): ThemeName {
-  const saved = localStorage.getItem(KEY);
-  if (saved === "light" || saved === "dark") return saved;
+// The DB is the source of truth for a signed-in user's theme (0018). The
+// localStorage mirror is a NON-authoritative cache used only to paint the right
+// theme on the very first frame, before `/api/me` resolves — otherwise we'd flash
+// the OS default. `themeStore.hydrate` swaps in the server value once it arrives.
+
+export function osTheme(): ThemeName {
   return window.matchMedia?.("(prefers-color-scheme: dark)").matches
     ? "dark"
     : "light";
 }
 
+export function initialTheme(): ThemeName {
+  try {
+    const saved = localStorage.getItem(KEY);
+    if (saved === "light" || saved === "dark") return saved;
+  } catch {
+    /* private mode — fall through to OS */
+  }
+  return osTheme();
+}
+
 export function applyTheme(theme: ThemeName): void {
   document.documentElement.dataset.theme = theme;
-  localStorage.setItem(KEY, theme);
+  try {
+    localStorage.setItem(KEY, theme);
+  } catch {
+    /* private mode — the in-memory store still holds it for this session */
+  }
 }

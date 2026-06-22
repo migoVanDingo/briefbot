@@ -2,34 +2,30 @@ import { useEffect, useState } from "react";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import { Joyride, STATUS, type Step } from "react-joyride";
 import { TOURS } from "../lib/tours";
+import { useAuth } from "../state/auth";
 
 // Renders the ⓘ relaunch button (next to a page title) and the page's Joyride.
-// Auto-runs once per browser on first visit; `ready` defers the auto-run until
-// the page's tour targets are actually on screen.
+// Auto-runs once per ACCOUNT on first visit (server-side flag, 0018), so it no
+// longer replays after a storage clear or in a new browser. `ready` defers the
+// auto-run until the page's tour targets are actually on screen.
 export function PageTour({ page, ready = true }: { page: string; ready?: boolean }) {
   const def = TOURS[page];
-  const key = `bbv2.tour.${page}`;
+  const flag = `tour:${page}`;
+  const hasFlag = useAuth((s) => s.hasFlag);
+  const setFlag = useAuth((s) => s.setFlag);
   const [run, setRun] = useState(false);
 
   useEffect(() => {
     if (!def || !ready) return;
-    try {
-      if (!localStorage.getItem(key)) setRun(true);
-    } catch {
-      /* private mode — fine, it just may re-show */
-    }
-  }, [def, ready, key]);
+    if (!hasFlag(flag)) setRun(true);
+  }, [def, ready, flag, hasFlag]);
 
   if (!def) return null;
 
   const onEvent = (data: { status: string }) => {
     if (data.status === STATUS.FINISHED || data.status === STATUS.SKIPPED) {
       setRun(false);
-      try {
-        localStorage.setItem(key, "1");
-      } catch {
-        /* ignore */
-      }
+      setFlag(flag); // persist "seen" to the account
     }
   };
 
