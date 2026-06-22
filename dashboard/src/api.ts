@@ -125,6 +125,7 @@ export interface Item {
 
 export interface Story extends Item {
   feedback_vote: number | null;
+  is_saved: boolean;
 }
 
 export interface StoryFilters {

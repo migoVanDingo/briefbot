@@ -400,7 +400,12 @@ def add_dashboard_routes(
         )
         return {
             "items": [
-                {**_item_dict(r), "feedback_vote": r["feedback_vote"]} for r in rows
+                {
+                    **_item_dict(r),
+                    "feedback_vote": r["feedback_vote"],
+                    "is_saved": bool(r["is_saved"]),
+                }
+                for r in rows
             ]
         }
 

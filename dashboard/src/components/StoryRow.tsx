@@ -8,6 +8,7 @@ import Star from "@mui/icons-material/Star";
 import { api } from "../api";
 import { useToasts } from "../state/toasts";
 import { timeAgo } from "../lib/format";
+import { SaveFavoriteModal } from "./SaveFavoriteModal";
 
 // A story that can be voted on / saved. Used on Stories and Headlines.
 export interface StoryLike {
@@ -19,33 +20,22 @@ export interface StoryLike {
   published_at?: string | null;
   fetched_at?: string | null;
   feedback_vote?: number | null;
+  // Whether the signed-in user has already saved this (server-sourced) so the ☆
+  // renders active across navigations/reloads.
+  is_saved?: boolean;
 }
 
 export function StoryRow({ story }: { story: StoryLike }) {
   const push = useToasts((s) => s.push);
   const [vote, setVote] = useState<number>(story.feedback_vote ?? 0);
-  const [saved, setSaved] = useState(false);
+  const [saved, setSaved] = useState(!!story.is_saved);
+  const [modalOpen, setModalOpen] = useState(false);
 
   const doVote = async (v: number) => {
     const next = vote === v ? 0 : v;
     try {
       await api.setFeedback(story.item_id, next);
       setVote(next);
-    } catch (e) {
-      push(String(e), "error");
-    }
-  };
-
-  const save = async () => {
-    if (!story.url) return;
-    try {
-      await api.addFavorite({
-        title: story.title,
-        url: story.url,
-        item_id: story.item_id,
-      });
-      setSaved(true);
-      push("Saved to favorites", "success");
     } catch (e) {
       push(String(e), "error");
     }
@@ -98,15 +88,22 @@ export function StoryRow({ story }: { story: StoryLike }) {
           ) : null}
           <button
             className={`icon-act${saved ? " star" : ""}`}
-            onClick={save}
+            onClick={() => story.url && setModalOpen(true)}
             disabled={!story.url}
-            aria-label="Save to favorites"
-            title="Save to favorites"
+            aria-label={saved ? "Saved — manage favorite" : "Save to favorites"}
+            title={saved ? "Saved — manage folders" : "Save to favorites"}
           >
             {saved ? <Star fontSize="small" /> : <StarBorder fontSize="small" />}
           </button>
         </span>
       </div>
+      {modalOpen && story.url ? (
+        <SaveFavoriteModal
+          story={{ item_id: story.item_id, title: story.title, url: story.url }}
+          onSaved={() => setSaved(true)}
+          onClose={() => setModalOpen(false)}
+        />
+      ) : null}
     </li>
   );
 }

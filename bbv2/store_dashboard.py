@@ -90,7 +90,11 @@ class DashboardQueriesMixin:
         own feedback vote joined in. Newest-first by default."""
         order_sql = "ASC" if str(order).lower() == "asc" else "DESC"
         sql = [
-            "SELECT DISTINCT i.*, f.vote AS feedback_vote",
+            "SELECT DISTINCT i.*, f.vote AS feedback_vote,",
+            # Whether THIS user has saved the item to any favorites folder — so the
+            # ☆ renders active on load (not just optimistically after a click).
+            "  EXISTS(SELECT 1 FROM favorite_links fl",
+            "         WHERE fl.user_id = ? AND fl.item_id = i.item_id) AS is_saved",
             "FROM items i",
             "JOIN item_topics it ON it.item_id = i.item_id",
             "JOIN subscriptions sub ON sub.topic_id = it.topic_id",
@@ -98,7 +102,8 @@ class DashboardQueriesMixin:
             "WHERE sub.user_id = ?",
             "AND COALESCE(it.relevant, 1) = 1",
         ]
-        params: list[Any] = [user_id, user_id]
+        # Param order follows the `?` order in the SQL: EXISTS, feedback JOIN, WHERE.
+        params: list[Any] = [user_id, user_id, user_id]
         if topic_slug:
             sql.append("AND it.topic_id = (SELECT id FROM topics WHERE slug = ?)")
             params.append(topic_slug)

@@ -503,3 +503,38 @@ def test_ui_flags_round_trip():
 
     assert c.delete("/api/flags/tour:headlines", headers=AUTH).status_code == 200
     assert c.get("/api/me", headers=AUTH).json()["flags"] == ["onboarding_done"]
+
+
+def test_story_is_saved_flag_and_folder_save():
+    store = Store(":memory:", check_same_thread=False)
+    c = _client(store)
+    c.get("/api/me", headers=AUTH)
+    tid = store.add_topic("crypto", "Crypto")
+    _story(store, tid, "ITM1", "Bitcoin rallies", "2025-01-02T00:00:00+00:00")
+    c.post("/api/topics/crypto/subscribe", headers=AUTH)
+
+    # not saved yet
+    items = c.post("/api/stories", json={}, headers=AUTH).json()["items"]
+    assert items[0]["item_id"] == "ITM1" and items[0]["is_saved"] is False
+
+    # save to the default favorites folder (what the modal does on open)
+    r = c.post(
+        "/api/favorites/items",
+        json={"title": "Bitcoin rallies", "url": "https://e/ITM1", "item_id": "ITM1"},
+        headers=AUTH,
+    )
+    assert r.status_code == 200
+
+    # the flag now persists on a fresh query (the page-reload regression guard)
+    again = c.post("/api/stories", json={}, headers=AUTH).json()["items"]
+    assert again[0]["is_saved"] is True
+
+    # file it into a new folder → shows up there
+    fid = c.post("/api/favorites/folders", json={"name": "Reading"}, headers=AUTH).json()["id"]
+    c.post(
+        "/api/favorites/items",
+        json={"title": "Bitcoin rallies", "url": "https://e/ITM1", "item_id": "ITM1", "folder_id": fid},
+        headers=AUTH,
+    )
+    folder_items = c.get(f"/api/favorites/items?folder_id={fid}", headers=AUTH).json()["items"]
+    assert [i["item_id"] for i in folder_items] == ["ITM1"]
