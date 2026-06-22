@@ -5,10 +5,17 @@ docs in `_documentation/`.
 
 ## What this is
 
-**bbv2** — a small, multi-user, topic-driven news platform. Topics → agent-
-discovered sources → cron ingestion → per-topic feeds + a consumer API (read by
-the `trader` project). Personal scale (me + family). Currently at **0002 —
-ingestion core** (backend, single profile; no API/discovery/multi-user/UI yet).
+**bbv2** ("briefbot") — a small, multi-user, topic-driven **news platform**.
+You name a topic → an agent discovers RSS/site sources → cron ingests + an LLM
+filters them → per-topic **Headlines** (AI-written daily brief + the stories
+behind it), a **chat** agent you can ask to search/summarize/create topics, a
+**Stories** browser, and **Favorites**. Firebase auth, owner-only admin, per-user
+LLM token budgets. Personal scale (me + mom + brother). Also exposes a read-only
+**consumer API** for the sibling `trader` project.
+
+**It is deployed and live in production** — a headless Ubuntu VM on a home Proxmox
+box, served over Tailscale HTTPS at `https://briefbot.tailb058fe.ts.net`, with
+**push-to-`main` CI/CD**. Full ops detail in `_documentation/devops.md`.
 
 ## HARD RULES
 
@@ -19,9 +26,13 @@ ingestion core** (backend, single profile; no API/discovery/multi-user/UI yet).
 
 ## Stack
 
-Python 3 · SQLite (WAL) · feedparser · beautifulsoup4 · requests ·
-python-dateutil · python-dotenv · **FastAPI + uvicorn** (consumer API).
-(Anthropic / Brave / Vite arrive in later phases.)
+**Backend:** Python 3 · SQLite (WAL) · FastAPI + uvicorn · feedparser ·
+beautifulsoup4 · requests · firebase-admin (auth). LLM over plain HTTP (no SDK):
+**Claude Haiku** for prose/moderation, **xAI Grok** for relevance (Haiku
+fallback). Brave Search for source discovery; Mailgun for the nightly email.
+**Frontend:** `dashboard/` — Vite + React + TS, custom CSS tokens, Firebase web SDK.
+**Prod:** Ubuntu VM on Proxmox · systemd · nginx · Tailscale · self-hosted GitHub
+Actions runner (see `_documentation/devops.md`).
 
 ## Commands
 
@@ -139,55 +150,44 @@ polish · **`0016` tech-debt + hardening** (SSRF guard `safefetch`, env CORS/bin
 token revoke, collect recency filter, moderation metering, cron logging, CSS
 split, SSE abort, dead-code removal — see `_plans/0016`).
 
-## WHERE WE ARE — pick up here (2026-06-19)
+## Deployment (production)
 
-**Plan `0008` (phases 1–6) is done** — the original briefbot's normal-flow
-dashboard is ported into bbv2. Run `make dev` (backend :8080 + frontend :5180):
+**Live at `https://briefbot.tailb058fe.ts.net`** (Tailscale-only). Runs on a home
+Proxmox VM: systemd `bbv2` (uvicorn :8080) ← nginx (:8081, serves the built
+dashboard + proxies `/api`) ← `tailscale serve` (HTTPS) ; cron runs `bbv2 tick`
+(hourly) + `bbv2 nightly` (11pm). **CI/CD: push to `main` → a self-hosted GitHub
+Actions runner on the VM rebuilds + restarts (~30s).** Full runbook (topology,
+config/secrets, ops, troubleshooting, how it was provisioned):
+**`_documentation/devops.md`**. Local dev is still `make dev` (backend :8080 +
+dashboard :5180).
 
-- **Routes:** `/headlines` (tabbed: *Today* = generated brief — title + summary +
-  Trending + Sources; per-topic tabs = stories newest-first), `/chat` (Haiku
-  tool-use agent, SSE), `/stories` (search/source/sort + vote + ☆ save),
-  `/favorites` (folders + links), `/topics` (user flow — see below).
-  Source curation lives at **`/admin/topics`** (Discover/Approve/Collect/Generate
-  brief) — **admin-only** (0009).
-- **`/topics` user flow (0009):** any user creates a topic → it passes **tiered
-  moderation** (slug/name validation → keyword denylist → Haiku classifier;
-  infosec allowed, harmful denied) → **provision** streams a chip pipeline
-  (Discover → Approve → Collect → Ready, SSE, witty phrases) → **Subscribe**.
-  Create + provision are **rate-limited** (per user). Source discovery drops
-  denylisted domains.
-- **Roles (0009):** **owner-only admin** via `ADMIN_EMAILS` (the ONLY way to grant
-  admin — no API/UI/CLI). `require_admin` 403-gates curation routes; the frontend
-  hides `/admin` + guards the route for non-admins.
-- **IDs:** prefixed ULIDs (`ITM…`/`SRC…`/`TOP…`/`CLU…`/`FAV…`/`FLD…`/`CON…`/
-  `MSG…`/`BRF…`) via `bbv2/ids.py`. Dedupe still on `dedupe_key`.
-- **Brief:** `bbv2/brief.py` + `cluster.py` + `llm.py` (Haiku). Generate via the
-  admin button or CLI `bbv2 brief [--topic]`. Stored in `briefs` table.
-- **Modules:** `ids`, `cluster`, `llm`, `brief`, `agent` (0008); `moderation`,
-  `ratelimit`, `denylist`, `provision` (0009); store mixins
-  (`store_dashboard`/`store_favorites`/`store_chat`). **66 pytest pass; build clean.**
-- **Live LLM (Haiku) is user-invoked only** (brief, chat, topic moderation).
-  Needs `ANTHROPIC_API_KEY`. Moderation **fails closed** (deny on LLM error).
+## WHERE WE ARE — current state
 
-**DB was wiped** (fresh `data/bbv2.db`) when ULIDs landed. To re-seed: set
-`ADMIN_EMAILS=<you>` in `.env`, log in (you provision as admin) → create a topic
-on **`/topics`** (auto discover→approve→collect) *or* curate via `/admin/topics` →
-Generate brief → see `/headlines`.
+**Shipped & deployed** through `0017` + post-0017 polish. Working end-to-end:
 
-**Creds:** backend Firebase service-account wired (`FIREBASE_CONFIG`, project
-`briefbot-v2`). Frontend `dashboard/.env` still **needs `VITE_FIREBASE_API_KEY` +
-`VITE_FIREBASE_APP_ID`** for live login.
+- **Routes:** `/headlines` (per-topic tabs; a left **date rail** of the last 10
+  days *with briefs* → that day's AI brief + that day's stories), `/chat` (Haiku
+  tool-use agent, SSE — search/summarize/**create or subscribe to topics**),
+  `/stories` (search/source/date/sort + vote + ☆ save), `/favorites` (folders),
+  `/topics` (user create→moderate→provision→subscribe), `/admin/topics`
+  (admin-only source curation), `/settings`.
+- **Per-page Joyride tutorials** (`PageTour` + `lib/tours`) with a ⓘ relaunch button;
+  responsive **hamburger** nav below the tablet breakpoint.
+- **Topic create flow:** tiered moderation (validation → keyword denylist → Haiku
+  classifier) → SSE provision pipeline (discover→approve→collect→review→[brief]) →
+  auto-subscribe. Rate-limited per user.
+- **Roles:** owner-only admin via `ADMIN_EMAILS` (no UI/API to grant).
+- **IDs:** prefixed ULIDs via `bbv2/ids.py`; dedupe on `dedupe_key`.
+- **Cost control:** per-user daily **token budget** (Haiku/Grok metered); LLM is
+  user-invoked + background (tick/nightly to a system bucket). Moderation fails closed.
+- **Hardening (0016):** SSRF guard (`safefetch`), env-driven CORS/bind, consumer-token
+  revoke, collect recency filter, logging. **130+ pytest pass; dashboard build clean.**
 
-### NEXT (own plans — the rest of the re-scope)
+## Backlog / next (each its own plan — see `_documentation/roadmap.md`)
 
-- **Settings:** per-user accent **color picker** (light accent is hardcoded blue
-  now); plus the existing digest settings.
-- **Logo** to replace the `◆` brand-mark; **article images** on cards (extract
-  `media:content`/`enclosure` + `og:image`).
-- **Persistent clusters** (unlocks the Stories cluster/tag filters deferred in
-  0008 Phase 3) + per-article deep summaries; brief **cron** cadence.
-- **Two pre-pivot bugs still open** (predate 0008, low priority now that flow is
-  changing): admin "Approve all" uses `Promise.all` of POSTs → "failed to fetch"
-  (serialize or add a bulk endpoint); collect ingests stale `published_at` items
-  → add a recency filter in `bbv2/collect.py`.
-- Trader data platform (`../trader/_plans/0017`) stays parked until bbv2 steady.
+- Settings accent **color picker**; **logo** + **article images** on cards.
+- **Persistent clusters** → Stories cluster/tag filters + better brief selection.
+- **Trader↔bbv2 integration:** the read-only **consumer API** (`/topics` `/items`)
+  is built but **not yet proxied by nginx** (its root paths collide with SPA routes)
+  — expose it on its own path/port when the `trader` data-platform work resumes
+  (`../trader/_plans/0017`, currently parked).

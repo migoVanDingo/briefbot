@@ -209,3 +209,12 @@ relaunchable from a subtle ⓘ button by the page title.
 - **600-line cap** per source file (split into modules/mixins as they grow).
 - Tests run **offline** — LLM/search/fetch are injected; SSE/agent/brief/moderation
   take stubbed generators.
+
+## Deployment
+
+Production runs on a home **Proxmox VM** behind **Tailscale** — `systemd` (the
+`bbv2` uvicorn service) ← `nginx` (serves the built dashboard + proxies `/api`) ←
+`tailscale serve` (HTTPS on the tailnet), with `cron` driving `bbv2 tick`/`nightly`.
+Code ships via **push-to-`main` CI/CD** (a self-hosted GitHub Actions runner on the
+VM rebuilds + restarts). The full topology, config/secrets, ops runbook, and
+provisioning history live in **[`devops.md`](./devops.md)**.
