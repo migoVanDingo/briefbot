@@ -7,7 +7,7 @@ injectable so the routes are testable offline.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any, Callable
 
 from fastapi import APIRouter, Body, Depends, FastAPI, Header, HTTPException
@@ -381,16 +381,20 @@ def add_dashboard_routes(
 
     @router.get("/topics/{slug}/briefs")
     def topic_briefs(
-        slug: str, days: int = 10, user: dict = Depends(current_user)
+        slug: str, limit: int = 10, user: dict = Depends(current_user)
     ) -> dict[str, Any]:
-        """The last `days` calendar days for a topic, each with its brief or null —
-        backs the Headlines date rail. Read-only; never triggers an LLM build (so
-        today's brief is null here until the rundown endpoint builds it)."""
+        """The Headlines date rail: the most recent days that HAVE a brief (newest
+        first, capped at `limit`), plus **today** at the top as the entry point
+        (its brief is null here until the rundown endpoint builds it on demand).
+        Read-only; never triggers an LLM build."""
         topic = _topic_or_404(slug)
-        days = max(1, min(days, 30))
-        today = datetime.now(timezone.utc).date()
-        dates = [(today - timedelta(days=i)).isoformat() for i in range(days)]
-        by_date = {b["date"]: b for b in store.briefs_since(int(topic["id"]), dates[-1])}
+        limit = max(1, min(limit, 30))
+        today = datetime.now(timezone.utc).date().isoformat()
+        rows = store.recent_briefs(int(topic["id"]), limit)
+        by_date = {r["date"]: r for r in rows}
+        dates = [today] if today not in by_date else []
+        dates += [r["date"] for r in rows]
+        dates = dates[:limit]  # newest-first; today is >= every brief date
         return {
             "days": [
                 {"date": d, "brief": _serialize_brief(topic, by_date[d]) if d in by_date else None}

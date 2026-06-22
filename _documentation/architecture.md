@@ -184,7 +184,10 @@ page and inside the chat thread (when the agent runs `create_topic`). The chat
 sidebar shows a usage counter (interactions + tokens vs. the daily budget).
 First-visit **onboarding** (`OnboardingTour`, react-joyride) gates on `me.onboarded`,
 lands the user on `/chat` with a canned Briefbot intro, and walks the nav; admins
-get per-topic/source **cadence** controls on the topic-detail page.
+get per-topic/source **cadence** controls on the topic-detail page. Each page
+(Headlines/Stories/Topics/Favorites) also has its own **one-time Joyride
+walkthrough** (`PageTour` + `lib/tours`, gated per-page in localStorage),
+relaunchable from a subtle ⓘ button by the page title.
 
 ## Conventions / invariants
 

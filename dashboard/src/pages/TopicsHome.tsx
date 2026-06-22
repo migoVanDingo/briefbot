@@ -5,6 +5,7 @@ import { api, type Topic } from "../api";
 import { useToasts } from "../state/toasts";
 import { LoadingBanner } from "../components/LoadingBanner";
 import { ProvisionPipeline } from "../components/ProvisionPipeline";
+import { PageTour } from "../components/PageTour";
 import { DISCOVER_PHRASES } from "../lib/phrases";
 
 function slugify(s: string): string {
@@ -114,9 +115,10 @@ export function TopicsHome() {
     <div className="page">
       <h1 className="page-title">
         <TopicIcon className="title-ico" /> Topics
+        <PageTour page="topics" ready={topics !== null} />
       </h1>
 
-      <form onSubmit={create} className="row-form card">
+      <form onSubmit={create} className="row-form card" data-tour="topics-create">
         <input
           placeholder="Display name (e.g. Crypto)"
           value={name}
@@ -161,7 +163,7 @@ export function TopicsHome() {
       {topics === null ? (
         <div className="muted pad">Loading…</div>
       ) : (
-        <ul className="list">
+        <ul className="list" data-tour="topics-list">
           {topics.map((t) => (
             <li key={t.slug} className="list-row">
               <div>

@@ -1,17 +1,22 @@
 /* ---- filter bar ---- */
 .filters {
   display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+/* Selectors + buttons sit on their own row below the full-width search. */
+.filter-controls {
+  display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  margin-bottom: 18px;
 }
 .filter-search {
   position: relative;
   display: flex;
   align-items: center;
-  flex: 1 1 240px;
-  min-width: 200px;
+  width: 100%;
 }
 .filter-search .filter-ico {
   position: absolute;

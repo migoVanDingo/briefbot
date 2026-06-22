@@ -191,7 +191,22 @@ def test_approve_all_candidates_bulk():
     assert cands == []
 
 
-def test_topic_briefs_rail():
+def _put_brief(store, tid, date, title):
+    store.upsert_brief(
+        {
+            "id": f"BRF-{date}",
+            "topic_id": tid,
+            "date": date,
+            "title": title,
+            "summary": "s",
+            "trending": [],
+            "sources": [],
+            "model": "m",
+        }
+    )
+
+
+def test_topic_briefs_rail_shows_today_then_brief_days():
     from datetime import datetime, timezone
 
     store = Store(":memory:", check_same_thread=False)
@@ -199,22 +214,38 @@ def test_topic_briefs_rail():
     c.get("/api/me", headers=AUTH)
     tid = store.add_topic("crypto", "Crypto")
     today = datetime.now(timezone.utc).date().isoformat()
-    store.upsert_brief(
-        {
-            "id": "BRF1",
-            "topic_id": tid,
-            "date": today,
-            "title": "Bitcoin Network Activity Surges Today",
-            "summary": "s",
-            "trending": [],
-            "sources": [],
-            "model": "m",
-        }
-    )
+
+    # No briefs yet → the rail still shows today as the entry point (brief null).
     days = c.get("/api/topics/crypto/briefs", headers=AUTH).json()["days"]
-    assert len(days) == 10  # last 10 calendar days, newest first
-    assert days[0]["date"] == today and days[0]["brief"]["title"].startswith("Bitcoin")
-    assert days[1]["brief"] is None  # a day with no brief renders empty
+    assert [d["date"] for d in days] == [today]
+    assert days[0]["brief"] is None
+
+    # Once today's brief exists it shows with content — still just the one day,
+    # no greyed-out empty days.
+    _put_brief(store, tid, today, "Bitcoin Surges")
+    days = c.get("/api/topics/crypto/briefs", headers=AUTH).json()["days"]
+    assert len(days) == 1
+    assert days[0]["date"] == today and days[0]["brief"]["title"] == "Bitcoin Surges"
+
+
+def test_topic_briefs_rail_orders_and_caps_at_10():
+    from datetime import datetime, timedelta, timezone
+
+    store = Store(":memory:", check_same_thread=False)
+    c = _client(store)
+    c.get("/api/me", headers=AUTH)
+    tid = store.add_topic("crypto", "Crypto")
+    base = datetime.now(timezone.utc).date()
+    for i in range(12):  # 12 days of briefs ending today
+        _put_brief(store, tid, (base - timedelta(days=i)).isoformat(), f"Day {i}")
+
+    dates = [d["date"] for d in c.get("/api/topics/crypto/briefs", headers=AUTH).json()["days"]]
+    assert len(dates) == 10  # capped at 10
+    assert dates == sorted(dates, reverse=True)  # newest first
+    assert dates[0] == base.isoformat()  # today at the top
+    # the two oldest fall off the list
+    assert (base - timedelta(days=10)).isoformat() not in dates
+    assert (base - timedelta(days=11)).isoformat() not in dates
 
 
 def test_approve_all_requires_admin():

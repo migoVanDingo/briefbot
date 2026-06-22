@@ -5,6 +5,7 @@ import { useToasts } from "../state/toasts";
 import { useHeadlinesNav } from "../state/headlinesNav";
 import { StoryRow } from "../components/StoryRow";
 import { LoadingBanner } from "../components/LoadingBanner";
+import { PageTour } from "../components/PageTour";
 
 const RUNDOWN_PHRASES = [
   "Reading today's top stories…",
@@ -163,69 +164,77 @@ export function Headlines() {
   }
 
   return (
-    <div className="page">
-      <h1 className="page-title">
-        <ArticleIcon className="title-ico" /> Headlines
-      </h1>
-
-      <div className="tabs">
-        {tabs.map((t) => (
+    <div className="headlines-shell">
+      <aside className="headlines-rail" aria-label="History (last 10 days)">
+        <div className="rail-title">History</div>
+        {(days ?? []).map((d, i) => (
           <button
-            key={t.slug}
-            className={`tab${active === t.slug ? " active" : ""}`}
-            onClick={() => setActive(t.slug)}
+            key={d.date}
+            className={`date-row${d.date === activeDate ? " active" : ""}`}
+            onClick={() => setActiveDate(d.date)}
           >
-            {t.name}
+            <span className="date-row-date">{formatDate(d.date)}</span>
+            {d.brief ? (
+              <span className="date-row-head"> — {truncate(d.brief.title, 15)}</span>
+            ) : i === 0 ? (
+              <span className="muted small"> · Today</span>
+            ) : null}
           </button>
         ))}
-      </div>
+      </aside>
 
-      <div className="headlines-body">
-        <aside className="date-rail" aria-label="Past 10 days">
-          {(days ?? []).map((d, i) => {
-            const isToday = i === 0;
-            const clickable = !!d.brief || isToday;
-            return (
+      <div className="headlines-content">
+        <div className="headlines-content-inner">
+          <h1 className="page-title">
+            <ArticleIcon className="title-ico" /> Headlines
+            <PageTour
+              page="headlines"
+              ready={
+                rundown !== null &&
+                rundown !== "loading" &&
+                Array.isArray(stories) &&
+                stories.length > 0
+              }
+            />
+          </h1>
+
+          <div className="tabs">
+            {tabs.map((t) => (
               <button
-                key={d.date}
-                className={`date-row${d.date === activeDate ? " active" : ""}`}
-                disabled={!clickable}
-                onClick={() => setActiveDate(d.date)}
+                key={t.slug}
+                className={`tab${active === t.slug ? " active" : ""}`}
+                onClick={() => setActive(t.slug)}
               >
-                <span className="date-row-date">{formatDate(d.date)}</span>
-                {d.brief ? (
-                  <span className="date-row-head">
-                    {" "}
-                    — {truncate(d.brief.title, 15)}
-                  </span>
-                ) : isToday ? (
-                  <span className="muted small"> · Today</span>
-                ) : null}
+                {t.name}
               </button>
-            );
-          })}
-        </aside>
+            ))}
+          </div>
 
-        <div className="headlines-main">
-          {rundown === "loading" ? (
-            <LoadingBanner phrases={RUNDOWN_PHRASES} />
-          ) : rundown ? (
-            <BriefCard brief={rundown} />
-          ) : null}
-          {stories === null ? (
-            <div className="muted pad">Loading…</div>
-          ) : stories.length === 0 ? (
-            <div className="empty">
-              <h2>No stories for this day</h2>
-              <p className="muted">Nothing collected for this topic on this date.</p>
-            </div>
-          ) : (
-            <ul className="story-list">
-              {stories.map((s) => (
-                <StoryRow key={s.item_id} story={s} />
-              ))}
-            </ul>
-          )}
+          <div data-tour="hl-brief">
+            {rundown === "loading" ? (
+              <LoadingBanner phrases={RUNDOWN_PHRASES} />
+            ) : rundown ? (
+              <BriefCard brief={rundown} />
+            ) : null}
+          </div>
+          <div data-tour="hl-stories">
+            {stories === null ? (
+              <div className="muted pad">Loading…</div>
+            ) : stories.length === 0 ? (
+              <div className="empty">
+                <h2>No stories for this day</h2>
+                <p className="muted">
+                  Nothing collected for this topic on this date.
+                </p>
+              </div>
+            ) : (
+              <ul className="story-list">
+                {stories.map((s) => (
+                  <StoryRow key={s.item_id} story={s} />
+                ))}
+              </ul>
+            )}
+          </div>
         </div>
       </div>
     </div>

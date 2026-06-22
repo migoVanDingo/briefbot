@@ -176,11 +176,11 @@ class DashboardQueriesMixin:
             (topic_id,),
         ).fetchone()
 
-    def briefs_since(self, topic_id: int, since_date: str) -> list[sqlite3.Row]:
-        """All briefs for a topic on/after `since_date` (YYYY-MM-DD), newest first.
-        Backs the Headlines date rail (the last N calendar days)."""
+    def recent_briefs(self, topic_id: int, limit: int = 10) -> list[sqlite3.Row]:
+        """The most recent briefs for a topic, newest first (days that actually have
+        a brief). Backs the Headlines date rail."""
         return self.conn.execute(
-            "SELECT * FROM briefs WHERE topic_id = ? AND date >= ? ORDER BY date DESC",
-            (topic_id, since_date),
+            "SELECT * FROM briefs WHERE topic_id = ? ORDER BY date DESC LIMIT ?",
+            (topic_id, limit),
         ).fetchall()
 

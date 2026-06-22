@@ -1,22 +1,36 @@
-/* ---- headlines: date rail + content (0017) ---- */
-.headlines-body {
-  display: flex;
-  gap: 20px;
-  align-items: flex-start;
-}
+/* ---- headlines: left-anchored date rail + content (0017) ---- */
 
-.date-rail {
-  flex: 0 0 230px;
+/* Laptop/desktop: the rail is FIXED to the left edge (full height, like /chat),
+   while the content flows in the normal document so the window scrolls — this
+   keeps the page scroll working for the Joyride tour (an inner scroll container
+   breaks Joyride's scroll-into-view). */
+.headlines-rail {
+  position: fixed;
+  top: var(--topbar-h, 58px);
+  left: 0;
+  bottom: 0;
+  width: 240px;
+  background: var(--bg);
+  border-right: 1px solid var(--border);
+  padding: 16px 12px;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 2px;
-  position: sticky;
-  top: 16px;
 }
-
-.headlines-main {
-  flex: 1 1 auto;
-  min-width: 0;
+.headlines-content {
+  margin-left: 240px; /* clear the fixed rail */
+}
+.headlines-content-inner {
+  max-width: 900px;
+  margin: 0 auto; /* center the brief + stories; the rail stays left-anchored */
+}
+.rail-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--dim);
+  padding: 4px 10px 8px;
 }
 
 .date-row {
@@ -35,47 +49,49 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-
 .date-row:hover:not(:disabled) {
   background: var(--surface2);
 }
-
 .date-row.active {
   background: var(--surface2);
   border-color: var(--border);
 }
-
 .date-row:disabled {
   color: var(--dim);
   cursor: default;
   opacity: 0.5;
 }
-
 .date-row-date {
   font-weight: 600;
 }
-
 .date-row-head {
   color: var(--dim);
 }
 
-@media (max-width: 720px) {
-  .headlines-body {
-    flex-direction: column;
-  }
-  .date-rail {
-    flex-basis: auto;
-    width: 100%;
+/* Tablet/phone: the rail becomes a horizontal date carousel above the content
+   (only the rail scrolls sideways; the page never does). */
+@media (max-width: 768px) {
+  .headlines-rail {
+    position: static;
+    width: auto;
     flex-direction: row;
     flex-wrap: nowrap;
     overflow-x: auto;
-    position: static;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
     gap: 6px;
-    padding-bottom: 6px;
+    padding: 10px 0;
+  }
+  .rail-title {
+    display: none;
   }
   .date-row {
     width: auto;
     flex: 0 0 auto;
     border: 1px solid var(--border);
+  }
+  .headlines-content {
+    margin-left: 0;
+    padding-top: 14px;
   }
 }

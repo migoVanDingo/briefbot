@@ -5,6 +5,7 @@ import CreateNewFolderIcon from "@mui/icons-material/CreateNewFolderOutlined";
 import CloseIcon from "@mui/icons-material/Close";
 import { api, type Favorite, type Folder } from "../api";
 import { useToasts } from "../state/toasts";
+import { PageTour } from "../components/PageTour";
 
 export function Favorites() {
   const push = useToasts((s) => s.push);
@@ -109,10 +110,11 @@ export function Favorites() {
     <div className="page">
       <h1 className="page-title">
         <StarIcon className="title-ico" /> Favorites
+        <PageTour page="favorites" />
       </h1>
 
       <form className="filters card" onSubmit={search}>
-        <div className="filter-search">
+        <div className="filter-search" data-tour="fav-search">
           <SearchIcon fontSize="small" className="filter-ico" />
           <input
             placeholder="Search all favorites…"
@@ -125,9 +127,11 @@ export function Favorites() {
             }}
           />
         </div>
-        <button className="btn nowrap" type="submit">
-          Search
-        </button>
+        <div className="filter-controls">
+          <button className="btn nowrap" type="submit">
+            Search
+          </button>
+        </div>
       </form>
 
       {results !== null ? (
@@ -141,7 +145,7 @@ export function Favorites() {
         )
       ) : (
         <>
-          <div className="tabs">
+          <div className="tabs" data-tour="fav-folders">
             {folders.map((f) => (
               <button
                 key={f.id}

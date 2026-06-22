@@ -1,4 +1,21 @@
 /* ---- buttons ---- */
+
+/* subtle ⓘ that (re)launches a page's Joyride tutorial; sits by the page title */
+.info-btn {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  background: transparent;
+  border: none;
+  color: var(--dim);
+  cursor: pointer;
+}
+.info-btn:hover {
+  color: var(--accent);
+}
+
 .btn {
   border: 1px solid var(--border);
   background: var(--surface);

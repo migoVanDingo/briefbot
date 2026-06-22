@@ -7,11 +7,14 @@ isn't three copies of the same story list.
 
 ## Changes
 
-1. **Date rail (left column).** The last **10 calendar days** for the active
-   topic. Each day with a brief shows `MMM D, YYYY — <title truncated to 15 chars>`
-   and is selectable; days without a brief render disabled. Selecting a day shows
-   that day's brief + **only that day's stories**. (User decisions: all 10 calendar
-   days shown even when empty; past-date view filters stories to that day.)
+1. **Date rail (left-anchored column).** The most recent **days that have a brief**
+   (newest first, capped at **10**), plus **today** at the top as the entry point
+   (selecting it builds today's brief on demand). Each shows
+   `MMM D, YYYY — <title truncated to 15 chars>`. No greyed-out empty days — once
+   there are >10 brief-days the oldest falls off. Selecting a day shows that day's
+   brief + **only that day's stories**. On laptop the rail is `position: fixed`
+   (flush-left, full height, like `/chat`) while the content scrolls in the window;
+   on mobile it collapses to a horizontal date carousel.
 2. **Drop the "Today" tab.** Tabs are just the user's topics (briefs are per-topic);
    the page defaults to the first topic + today.
 3. **De-dup the brief card.** Removed the **Trending** cards and the **Sources**

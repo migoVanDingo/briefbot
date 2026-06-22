@@ -4,6 +4,7 @@ import SearchIcon from "@mui/icons-material/Search";
 import { api, type Story } from "../api";
 import { useToasts } from "../state/toasts";
 import { StoryRow } from "../components/StoryRow";
+import { PageTour } from "../components/PageTour";
 
 type Order = "desc" | "asc";
 
@@ -61,6 +62,7 @@ export function Stories() {
     <div className="page">
       <h1 className="page-title">
         <FeedIcon className="title-ico" /> Stories
+        <PageTour page="stories" />
       </h1>
 
       <form className="filters card" onSubmit={submit}>
@@ -73,40 +75,42 @@ export function Stories() {
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
-        <select value={topic} onChange={(e) => setTopic(e.target.value)}>
-          <option value="">All topics</option>
-          {topics.map((t) => (
-            <option key={t.slug} value={t.slug}>
-              {t.name}
-            </option>
-          ))}
-        </select>
-        <select value={source} onChange={(e) => setSource(e.target.value)}>
-          <option value="">All sources</option>
-          {sources.map((s) => (
-            <option key={s} value={s}>
-              {s}
-            </option>
-          ))}
-        </select>
-        <label className="filter-date">
-          From
-          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
-        </label>
-        <label className="filter-date">
-          To
-          <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
-        </label>
-        <button
-          type="button"
-          className="btn nowrap"
-          onClick={() => setOrder((o) => (o === "desc" ? "asc" : "desc"))}
-        >
-          {order === "desc" ? "Newest first" : "Oldest first"}
-        </button>
-        <button className="btn primary nowrap" type="submit">
-          Search
-        </button>
+        <div className="filter-controls">
+          <select value={topic} onChange={(e) => setTopic(e.target.value)}>
+            <option value="">All topics</option>
+            {topics.map((t) => (
+              <option key={t.slug} value={t.slug}>
+                {t.name}
+              </option>
+            ))}
+          </select>
+          <select value={source} onChange={(e) => setSource(e.target.value)}>
+            <option value="">All sources</option>
+            {sources.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+          <label className="filter-date">
+            From
+            <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+          </label>
+          <label className="filter-date">
+            To
+            <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+          </label>
+          <button
+            type="button"
+            className="btn nowrap"
+            onClick={() => setOrder((o) => (o === "desc" ? "asc" : "desc"))}
+          >
+            {order === "desc" ? "Newest first" : "Oldest first"}
+          </button>
+          <button className="btn primary nowrap" type="submit">
+            Search
+          </button>
+        </div>
       </form>
 
       {stories === null ? (
