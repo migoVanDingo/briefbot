@@ -1,0 +1,48 @@
+name: deploy
+
+# Self-hosted runner lives ON the briefbot VM (home server, tailnet-only). On push
+# to main it syncs the checkout into the app dir, rebuilds the dashboard, refreshes
+# backend deps, and restarts the service. Secrets/runtime on the VM (.env, config/,
+# data/, .venv) are gitignored and preserved by the rsync excludes.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: bbv2-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Sync code into app dir
+        run: |
+          rsync -a --delete \
+            --exclude='.git' --exclude='.github' \
+            --exclude='.env' --exclude='data' --exclude='config' \
+            --exclude='.venv' --exclude='dist' --exclude='node_modules' \
+            ./ /home/briefbot/briefbot/
+
+      - name: Backend deps
+        run: /home/briefbot/briefbot/.venv/bin/pip install -q -r /home/briefbot/briefbot/requirements.txt
+
+      - name: Build dashboard
+        working-directory: /home/briefbot/briefbot/dashboard
+        run: |
+          npm install --no-audit --no-fund
+          npm run build
+
+      - name: Restart bbv2
+        run: sudo systemctl restart bbv2
+
+      - name: Health check
+        run: |
+          for i in $(seq 1 10); do
+            curl -fsS http://127.0.0.1:8080/health && echo " OK" && exit 0
+            sleep 2
+          done
+          echo "health check failed"; sudo systemctl status bbv2 --no-pager -n 20; exit 1
