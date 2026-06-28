@@ -486,6 +486,12 @@ export const api = {
   briefs: () => req<{ briefs: Brief[]; topics: TopicTab[] }>("/api/briefs"),
   topicBriefs: (slug: string) =>
     req<{ days: BriefDay[] }>(`/api/topics/${slug}/briefs`).then((d) => d.days),
+  // The stories behind a day's brief (its persisted sources), not a date query —
+  // so a next-day-labelled brief still shows the items it was built from.
+  briefStories: (slug: string, date: string) =>
+    req<{ items: Story[] }>(
+      `/api/topics/${slug}/briefs/${encodeURIComponent(date)}/stories`,
+    ).then((d) => d.items),
   generateBrief: (slug: string) =>
     req<{ ok: boolean; title: string }>(`/api/topics/${slug}/brief`, {
       method: "POST",

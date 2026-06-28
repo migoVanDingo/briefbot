@@ -710,3 +710,46 @@ def test_run_provision_lifecycle_and_orphans(monkeypatch):
     assert store.fail_orphaned_runs() == 1
     assert store.get_run(rid3)["status"] == "error"
     assert store.get_run(rid3)["error"] == "interrupted"
+
+
+def test_brief_stories_returns_sources_not_date_query():
+    """A nightly brief is dated for the *next* day, but its source items were
+    collected earlier. The Headlines stories list must come from the brief's
+    persisted sources, not a by-date query (which would be empty). Regression."""
+    from datetime import datetime, timezone
+
+    from bbv2.brief import build_brief
+
+    store = Store(":memory:", check_same_thread=False)
+    c = _client(store)
+    me = c.get("/api/me", headers=AUTH).json()["user"]
+
+    tid = store.add_topic("crypto", "Crypto")
+    sid = store.add_source("rss", "https://x/feed", "X")
+    store.link_topic_source(tid, sid)
+    store.subscribe(me["id"], tid)
+    for iid in ("ITMa", "ITMb"):
+        store.upsert_item(
+            {
+                "item_id": iid, "dedupe_key": f"url:{iid}", "canonical_url": f"https://e/{iid}",
+                "source_id": str(sid), "source_name": "X", "title": f"Bitcoin {iid}",
+                "url": f"https://e/{iid}", "published_at": "2025-01-08T08:00:00+00:00",
+                "fetched_at": "2025-01-08T08:00:00+00:00", "summary": "s.", "score": 2.0, "raw": {},
+            }
+        )
+        store.map_item_topic(iid, tid)
+
+    # Brief labelled for the NEXT day (items are from 2025-01-08). `now` pins the
+    # 48h lookback so the seeded items fall inside it.
+    build_brief(store, "crypto", date="2025-01-09",
+                now=datetime(2025, 1, 9, 12, tzinfo=timezone.utc),
+                generate=lambda p, **k: '{"title":"t","summary":"What to watch next: x"}')
+
+    r = c.get("/api/topics/crypto/briefs/2025-01-09/stories", headers=AUTH)
+    assert r.status_code == 200, r.text
+    items = r.json()["items"]
+    assert {i["item_id"] for i in items} == {"ITMa", "ITMb"}  # the brief's sources
+    assert all("feedback_vote" in i and "is_saved" in i for i in items)
+
+    # A day with no brief → empty (graceful), not a crash.
+    assert c.get("/api/topics/crypto/briefs/2030-01-01/stories", headers=AUTH).json()["items"] == []

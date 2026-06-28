@@ -545,6 +545,29 @@ def add_dashboard_routes(
             ]
         }
 
+    @router.get("/topics/{slug}/briefs/{date}/stories")
+    def brief_stories(
+        slug: str, date: str, user: dict = Depends(current_user)
+    ) -> dict[str, Any]:
+        """The stories behind a given day's brief — the exact items the brief was
+        built from (its persisted `sources`), hydrated with the user's vote/save
+        state. Decoupled from the brief's *label* date: a nightly brief is dated for
+        the next day, but its source items were collected earlier, so a date-range
+        query would (correctly) find nothing. Empty list if that day has no brief."""
+        topic = _topic_or_404(slug)
+        brief = store.get_brief(int(topic["id"]), date)
+        if brief is None:
+            return {"items": []}
+        sources = json.loads(brief["sources_json"] or "[]")
+        item_ids = [s["item_id"] for s in sources if s.get("item_id")]
+        rows = store.stories_by_ids(user["id"], item_ids)
+        return {
+            "items": [
+                {**_item_dict(r), "feedback_vote": r["feedback_vote"], "is_saved": bool(r["is_saved"])}
+                for r in rows
+            ]
+        }
+
     @router.post("/topics/{slug}/brief")
     def generate_brief(slug: str, user: dict = Depends(require_brief)) -> dict[str, Any]:
         """Generate (Haiku) + persist a topic's brief now — replaces today's brief.

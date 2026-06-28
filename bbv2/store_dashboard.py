@@ -132,6 +132,27 @@ class DashboardQueriesMixin:
         params.append(limit)
         return self.conn.execute(" ".join(sql), params).fetchall()
 
+    def stories_by_ids(self, user_id: int, item_ids: list[str]) -> list[sqlite3.Row]:
+        """Hydrate specific items by id with this user's vote + saved state — same row
+        shape as `query_stories`. Backs the Headlines "stories behind the brief":
+        a brief persists the exact items it summarized, so we render those rather
+        than a date-range query (whose date can't match a next-day-labelled brief).
+        Returned in the given `item_ids` order; missing ids are dropped."""
+        if not item_ids:
+            return []
+        placeholders = ",".join("?" for _ in item_ids)
+        rows = self.conn.execute(
+            "SELECT i.*, f.vote AS feedback_vote, "
+            "  EXISTS(SELECT 1 FROM favorite_links fl "
+            "         WHERE fl.user_id = ? AND fl.item_id = i.item_id) AS is_saved "
+            "FROM items i "
+            "LEFT JOIN story_feedback f ON f.item_id = i.item_id AND f.user_id = ? "
+            f"WHERE i.item_id IN ({placeholders})",
+            [user_id, user_id, *item_ids],
+        ).fetchall()
+        by_id = {r["item_id"]: r for r in rows}
+        return [by_id[i] for i in item_ids if i in by_id]
+
     def set_story_feedback(self, user_id: int, item_id: str, vote: int) -> None:
         """Upsert the user's vote (-1/0/1) on a story."""
         self.conn.execute(

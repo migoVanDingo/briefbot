@@ -125,23 +125,28 @@ export function Headlines() {
     };
   }, [active, activeDate, days]);
 
-  // Only the selected day's stories (newest first).
+  // The stories behind the selected day's brief — its persisted sources, not a
+  // date query. A nightly brief is dated for the *next* day while its items were
+  // collected earlier, so a by-date lookup would wrongly come back empty.
   useEffect(() => {
-    if (!active || !activeDate) return;
+    if (!active) return;
+    if (rundown === "loading") {
+      setStories(null); // brief still building → show stories loading too
+      return;
+    }
+    if (rundown === null) {
+      setStories([]); // a past day with no brief
+      return;
+    }
     setStories(null);
     api
-      .queryStories({
-        topic: active,
-        from: `${activeDate}T00:00:00+00:00`,
-        to: `${activeDate}T23:59:59+00:00`,
-        limit: 50,
-      })
+      .briefStories(active, rundown.date)
       .then(setStories)
       .catch((e) => {
         push(String(e), "error");
         setStories([]);
       });
-  }, [active, activeDate, push]);
+  }, [active, rundown, push]);
 
   if (!tabsLoaded) return <div className="muted pad">Loading…</div>;
 
