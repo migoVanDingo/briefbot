@@ -117,6 +117,12 @@ class Store(
                 self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
             except sqlite3.OperationalError:
                 pass  # column already exists
+        # Indexes on migrated columns must be created AFTER the ALTER above — they
+        # can't live in SCHEMA_SQL because that runs before this migration, so on an
+        # existing DB the column wouldn't exist yet (would crash Store init).
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_token_usage_topic ON token_usage(topic_id, created_at)"
+        )
 
     def close(self) -> None:
         if self._shared is not None:

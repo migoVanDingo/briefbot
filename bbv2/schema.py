@@ -281,7 +281,6 @@ CREATE INDEX IF NOT EXISTS idx_token_usage_user_time ON token_usage(user_id, cre
 CREATE INDEX IF NOT EXISTS idx_user_sessions_user ON user_sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_auth_events_user_time ON auth_events(user_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_space_membership_user ON space_membership(user_id);
-CREATE INDEX IF NOT EXISTS idx_token_usage_topic ON token_usage(topic_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_story_clicks_user ON story_clicks(user_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_provision_runs_user ON provision_runs(user_id, status);
 CREATE INDEX IF NOT EXISTS idx_provision_runs_conv ON provision_runs(conversation_id);
