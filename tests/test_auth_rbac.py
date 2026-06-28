@@ -177,3 +177,43 @@ def test_curation_routes_gated_by_capability():
     # admin role → allowed (has the curation caps)
     store.set_user_role("me@example.com", "admin")
     assert c.get("/api/topics/crypto/sources", headers=AUTH).status_code == 200
+
+
+# ---- email_verified gate (0025 S1) ----
+
+def _app_with_verifier(store, verifier):
+    app = FastAPI()
+    add_dashboard_routes(app, store, verifier, moderate_generate=_allow_gen)
+    return TestClient(app)
+
+
+def test_exchange_rejects_explicitly_unverified_email():
+    store = Store(":memory:", check_same_thread=False)
+    c = _app_with_verifier(
+        store, lambda t: {"email": "x@example.com", "name": "X", "email_verified": False}
+    )
+    r = c.post("/api/auth/exchange", headers={"Authorization": "Bearer good"})
+    assert r.status_code == 403  # unverified email can't open a session
+
+
+def test_owner_bootstrap_requires_verified_email(monkeypatch):
+    # An unverified token for an ADMIN_EMAILS address must NOT be granted owner.
+    monkeypatch.setenv("ADMIN_EMAILS", "boss@example.com")
+    store = Store(":memory:", check_same_thread=False)
+    c = _app_with_verifier(
+        store, lambda t: {"email": "boss@example.com", "name": "Boss", "email_verified": False}
+    )
+    # exchange itself is blocked (explicit false), so no owner is ever created
+    assert c.post("/api/auth/exchange", headers={"Authorization": "Bearer good"}).status_code == 403
+    row = store.get_user("boss@example.com")
+    assert row is None or row["role"] != "owner"
+
+
+def test_exchange_allows_verified_and_absent_claim():
+    # Verified true → ok; claim absent (some providers) → still ok (not blocked).
+    store = Store(":memory:", check_same_thread=False)
+    c1 = _app_with_verifier(store, lambda t: {"email": "v@x.com", "name": "V", "email_verified": True})
+    assert c1.post("/api/auth/exchange", headers={"Authorization": "Bearer good"}).status_code == 200
+    store2 = Store(":memory:", check_same_thread=False)
+    c2 = _app_with_verifier(store2, lambda t: {"email": "a@x.com", "name": "A"})
+    assert c2.post("/api/auth/exchange", headers={"Authorization": "Bearer good"}).status_code == 200

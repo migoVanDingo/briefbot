@@ -10,6 +10,7 @@ fake. bbv2 uses Haiku for the real call (cost).
 
 from __future__ import annotations
 
+import threading
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
@@ -19,6 +20,20 @@ from .llm import extract_json, generate_text
 from .store import Store
 
 Generate = Callable[..., str]
+
+# Serialize concurrent first-views of the same (topic, date) so two requests don't
+# each fire an LLM build (double cost, last-writer-wins text). Single-process app.
+_build_locks: dict[tuple[int, str], threading.Lock] = {}
+_locks_guard = threading.Lock()
+
+
+def _build_lock(topic_id: int, date: str) -> threading.Lock:
+    key = (topic_id, date)
+    with _locks_guard:
+        lk = _build_locks.get(key)
+        if lk is None:
+            lk = _build_locks[key] = threading.Lock()
+        return lk
 
 TOP_STORIES = 8          # stories fed to the summary + listed as sources
 TOP_TRENDING = 5         # storylines shown in the Trending section
@@ -144,14 +159,20 @@ def get_or_build_brief(
         raise ValueError(f"unknown topic '{topic_slug}'")
     now = now or datetime.now(timezone.utc)
     date = now.date().isoformat()
-    existing = store.get_brief(int(topic["id"]), date)
+    tid = int(topic["id"])
+    existing = store.get_brief(tid, date)
     if existing is not None:
         return existing
-    built = build_brief(store, topic_slug, date=date, generate=generate, now=now)
-    if built is None:
-        return None
-    # Return the persisted row so callers always get a uniform shape.
-    return store.get_brief(int(topic["id"]), date)
+    # Only one builder per (topic, date); the loser falls through to the cached row.
+    with _build_lock(tid, date):
+        existing = store.get_brief(tid, date)
+        if existing is not None:
+            return existing
+        built = build_brief(store, topic_slug, date=date, generate=generate, now=now)
+        if built is None:
+            return None
+        # Return the persisted row so callers always get a uniform shape.
+        return store.get_brief(tid, date)
 
 
 def build_all_briefs(

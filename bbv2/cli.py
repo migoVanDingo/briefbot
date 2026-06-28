@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import logging
 from datetime import datetime, timedelta, timezone
 
 from . import config
@@ -164,6 +163,8 @@ def cmd_token_revoke(args: argparse.Namespace) -> None:
 
 
 def cmd_serve(args: argparse.Namespace) -> None:
+    import logging
+
     import uvicorn
     from fastapi.middleware.cors import CORSMiddleware
 
@@ -171,11 +172,19 @@ def cmd_serve(args: argparse.Namespace) -> None:
     from .auth import verify_token
     from .dashboard_api import add_dashboard_routes
 
+    log = logging.getLogger("bbv2.serve")
+
     if config.jwt_secret_is_default():
-        print(
-            "WARNING: BBV2_JWT_SECRET is unset — using an ephemeral per-process "
-            "secret. Sessions won't survive a restart. Set it in production "
-            "(see _documentation/devops.md)."
+        log.warning(
+            "BBV2_JWT_SECRET is unset — using an ephemeral per-process secret. "
+            "Sessions won't survive a restart. Set it in production (devops.md)."
+        )
+    # Auth cookies over plain HTTP are a session-theft risk in production. Local
+    # http dev legitimately needs Secure=off, so warn rather than refuse.
+    if not config.cookie_secure() and args.host not in ("127.0.0.1", "localhost"):
+        log.warning(
+            "BBV2_COOKIE_SECURE is off but binding %s (not localhost) — set "
+            "BBV2_COOKIE_SECURE=true so auth cookies are HTTPS-only.", args.host
         )
 
     # check_same_thread=False: API serves on a threadpool over one connection (WAL).
@@ -184,7 +193,12 @@ def cmd_serve(args: argparse.Namespace) -> None:
     # mark it interrupted so the UI shows no zombie pipelines (0023).
     orphaned = store.fail_orphaned_runs()
     if orphaned:
-        print(f"marked {orphaned} interrupted provision run(s) from a prior restart")
+        log.info("marked %d interrupted provision run(s) from a prior restart", orphaned)
+    # Background image gens that were mid-flight at the last restart are stuck
+    # 'pending' forever otherwise (the atomic claim only fires from non-pending).
+    stuck = store.reset_orphaned_image_jobs()
+    if stuck:
+        log.info("reset %d stuck 'pending' image job(s) from a prior restart", stuck)
     app = create_app(store)  # consumer API (service tokens)
     # add_dashboard_routes also wires /api/auth/* (Firebase exchange → bbv2 session).
     add_dashboard_routes(app, store, verify_token)  # /api/* (Firebase)
@@ -196,11 +210,24 @@ def cmd_serve(args: argparse.Namespace) -> None:
         allow_headers=["*"],
     )
 
+    from fastapi import Request
+    from fastapi.responses import JSONResponse
+
+    @app.exception_handler(Exception)
+    async def _on_unhandled(request: Request, exc: Exception) -> JSONResponse:
+        # Expected 4xx (HTTPException/validation) have their own handlers; this only
+        # fires for genuinely unhandled errors — log the traceback so 500s aren't silent.
+        log.exception("unhandled error on %s %s", request.method, request.url.path)
+        return JSONResponse(status_code=500, content={"detail": "internal server error"})
+
     @app.on_event("shutdown")
     def _close_store() -> None:
         store.close_all()
 
-    uvicorn.run(app, host=args.host, port=args.port)
+    log.info("serving bbv2 on %s:%s (log level %s)", args.host, args.port, config.log_level())
+    # Align uvicorn's own access/error logs to our level; keep its default handlers
+    # so request logs show up alongside ours in journald/stderr.
+    uvicorn.run(app, host=args.host, port=args.port, log_level=config.log_level().lower())
 
 
 def cmd_items(args: argparse.Namespace) -> None:
@@ -406,6 +433,10 @@ def cmd_nightly(args: argparse.Namespace) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="bbv2")
+    parser.add_argument(
+        "-v", "--verbose", action="store_true",
+        help="verbose (DEBUG) logging; overrides BBV2_LOG_LEVEL",
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("init").set_defaults(func=cmd_init)
@@ -541,32 +572,12 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _setup_logging() -> None:
-    """Send bbv2 logs to console + a rotating-ish file in the log dir, with
-    timestamps/levels — so unattended `tick`/`nightly` cron runs are auditable.
-    Configured here (CLI entrypoint) only, never at import time."""
-    if logging.getLogger("bbv2").handlers:
-        return
-    fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
-    logger = logging.getLogger("bbv2")
-    logger.setLevel(logging.INFO)
-    console = logging.StreamHandler()
-    console.setFormatter(fmt)
-    logger.addHandler(console)
-    try:
-        log_dir = config.log_dir()
-        log_dir.mkdir(parents=True, exist_ok=True)
-        file_handler = logging.FileHandler(log_dir / "bbv2.log")
-        file_handler.setFormatter(fmt)
-        logger.addHandler(file_handler)
-    except OSError:
-        pass  # console logging still works if the log dir isn't writable
-
-
 def main(argv: list[str] | None = None) -> None:
-    _setup_logging()
+    from .logging_setup import configure_logging
+
     parser = build_parser()
     args = parser.parse_args(argv)
+    configure_logging(verbose=getattr(args, "verbose", False))
     args.func(args)
 
 

@@ -31,6 +31,16 @@ def log_dir() -> Path:
     return Path(os.getenv("BBV2_LOG_DIR", str(_root() / "data" / "logs")))
 
 
+def log_level() -> str:
+    """Log verbosity (ERROR/WARNING/INFO/DEBUG). Default INFO; `-v` → DEBUG."""
+    return (os.getenv("BBV2_LOG_LEVEL", "INFO") or "INFO").strip().upper()
+
+
+def log_format() -> str:
+    """Log format: 'text' (default) or 'json' for structured shipping."""
+    return (os.getenv("BBV2_LOG_FORMAT", "text") or "text").strip().lower()
+
+
 def http_timeout() -> int:
     try:
         return int(os.getenv("BBV2_HTTP_TIMEOUT", "20"))
@@ -112,6 +122,16 @@ def topic_images_enabled() -> bool:
     """Generate a per-topic header image (Grok Imagine). Needs a Grok key; set
     TOPIC_IMAGES_ENABLED=false to turn it off."""
     return _bool_env("TOPIC_IMAGES_ENABLED", True) and bool(grok_api_key())
+
+
+def avatars_dir() -> Path:
+    return Path(os.getenv("BBV2_AVATARS_DIR", str(_root() / "data" / "avatars")))
+
+
+def avatars_enabled() -> bool:
+    """Allow Grok-generated profile avatars (0028). Needs a Grok key; the default
+    identicon works regardless. Set AVATARS_ENABLED=false to disable generation."""
+    return _bool_env("AVATARS_ENABLED", True) and bool(grok_api_key())
 
 
 def relevance_provider() -> str:
@@ -313,11 +333,24 @@ def llm_prices() -> dict[str, dict[str, float]]:
     }
 
 
+def image_price() -> float:
+    """Estimated USD per generated image (Grok Imagine, 0027) — images bill per
+    image, not per token. Env-overridable as pricing changes."""
+    return _float_env("GROK_IMAGE_PRICE", 0.02)
+
+
 def collect_max_age_days() -> int:
     """Drop feed items whose published_at is older than this many days at collect
     time — some feeds carry stale entries that would pollute the archive. Set
     BBV2_COLLECT_MAX_AGE_DAYS=0 to disable the cutoff."""
     return _int_env("BBV2_COLLECT_MAX_AGE_DAYS", 14)
+
+
+def source_drop_threshold() -> int:
+    """Disable a source after this many CONSECUTIVE droppable-4xx fetch failures
+    (0029). Any successful fetch resets the streak; 410 Gone drops immediately.
+    Set BBV2_SOURCE_DROP_THRESHOLD=0 to disable auto-dropping entirely."""
+    return _int_env("BBV2_SOURCE_DROP_THRESHOLD", 3)
 
 
 def onboard_brief_window_min() -> int:

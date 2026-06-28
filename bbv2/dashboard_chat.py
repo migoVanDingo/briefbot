@@ -7,14 +7,17 @@ the dashboard router (auth + the general per-user rate limit apply via the route
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any, Callable
 
 from fastapi import APIRouter, Body, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
 from . import config, usage
-from .ratelimit import limiter
+from .ratelimit import limiter, rate_limit_error
 from .store import Store
+
+log = logging.getLogger("bbv2.chat")
 
 
 def add_chat_routes(
@@ -97,11 +100,7 @@ def add_chat_routes(
         limit, window = config.ratelimit_chat()
         ok, retry = limiter.check(("chat", user["id"]), limit=limit, window_s=window)
         if not ok:
-            raise HTTPException(
-                status_code=429,
-                detail="Too many requests — slow down.",
-                headers={"Retry-After": str(int(retry) + 1)},
-            )
+            raise rate_limit_error(retry)
         text = (body.get("content") or "").strip()
         if not text:
             raise HTTPException(status_code=400, detail="content required")
@@ -109,14 +108,20 @@ def add_chat_routes(
         review_generate = usage.metered_relevance_generate(store, user["id"], "provision")
 
         def gen():
-            for ev in run_chat_turn(
-                store,
-                user["id"],
-                cid,
-                text,
-                moderate_generate=moderate_generate,
-                review_generate=review_generate,
-            ):
-                yield f"data: {json.dumps(ev)}\n\n"
+            try:
+                for ev in run_chat_turn(
+                    store,
+                    user["id"],
+                    cid,
+                    text,
+                    moderate_generate=moderate_generate,
+                    review_generate=review_generate,
+                ):
+                    yield f"data: {json.dumps(ev)}\n\n"
+            except Exception:  # noqa: BLE001 - never break the SSE stream silently
+                log.exception("chat turn crashed (conv=%s user=%s)", cid, user["id"])
+                err = {"type": "error", "message": "Something went wrong. Please try again."}
+                yield f"data: {json.dumps(err)}\n\n"
+                yield f"data: {json.dumps({'type': 'done', 'conversation_id': cid})}\n\n"
 
         return StreamingResponse(gen(), media_type="text/event-stream")

@@ -8,6 +8,7 @@ here so brief-building stays testable with an injected generator.
 from __future__ import annotations
 
 import json
+import logging
 import re
 from typing import Any, Callable
 
@@ -15,6 +16,20 @@ import requests
 
 from . import config
 from .httpclient import request_with_backoff
+
+log = logging.getLogger("bbv2.llm")
+
+
+def _log_call(provider: str, model: str, usage: dict[str, Any] | None, extra: str = "") -> None:
+    """DEBUG line per LLM call — model + token volume (never prompt/response bodies)."""
+    if not log.isEnabledFor(logging.DEBUG):
+        return
+    u = usage or {}
+    log.debug(
+        "%s call model=%s in=%s out=%s%s",
+        provider, model, u.get("input_tokens", "?"), u.get("output_tokens", "?"),
+        f" {extra}" if extra else "",
+    )
 
 # Called with (usage_dict, model) after a successful call, when provided. The
 # usage_dict is Anthropic's `usage` block (input_tokens/output_tokens). Lets
@@ -79,15 +94,16 @@ def grok_text(
     text = (choices[0].get("message", {}).get("content", "") if choices else "").strip()
     if not text:
         raise LLMError("Grok returned empty content")
-    if on_usage and isinstance(data.get("usage"), dict):
+    norm_usage = None
+    if isinstance(data.get("usage"), dict):
         u = data["usage"]
-        on_usage(
-            {
-                "input_tokens": u.get("prompt_tokens", 0),
-                "output_tokens": u.get("completion_tokens", 0),
-            },
-            model,
-        )
+        norm_usage = {
+            "input_tokens": u.get("prompt_tokens", 0),
+            "output_tokens": u.get("completion_tokens", 0),
+        }
+        if on_usage:
+            on_usage(norm_usage, model)
+    _log_call("grok", model, norm_usage)
     return text
 
 
@@ -130,7 +146,9 @@ def grok_image(
     b64 = arr[0].get("b64_json") if arr else None
     if not b64:
         raise LLMError("Grok image returned no data")
-    return base64.b64decode(b64)
+    img = base64.b64decode(b64)
+    log.debug("grok image model=%s bytes=%d", model or config.grok_image_model(), len(img))
+    return img
 
 
 def generate_text(
@@ -167,8 +185,10 @@ def generate_text(
     if resp.status_code >= 400:
         raise LLMError(f"Anthropic HTTP {resp.status_code}: {resp.text[:300]}")
     data = resp.json()
-    if on_usage and isinstance(data.get("usage"), dict):
-        on_usage(data["usage"], model)
+    usage = data.get("usage") if isinstance(data.get("usage"), dict) else None
+    if on_usage and usage:
+        on_usage(usage, model)
+    _log_call("anthropic", model, usage)
     parts = [c.get("text", "") for c in (data.get("content") or []) if isinstance(c, dict)]
     text = "\n".join(p for p in parts if p).strip()
     if not text:
@@ -216,10 +236,12 @@ def anthropic_messages(
     if resp.status_code >= 400:
         raise LLMError(f"Anthropic HTTP {resp.status_code}: {resp.text[:300]}")
     data = resp.json()
+    usage = data.get("usage") if isinstance(data.get("usage"), dict) else None
+    _log_call("anthropic", payload["model"], usage, extra=f"stop={data.get('stop_reason')}")
     return {
         "content": data.get("content") or [],
         "stop_reason": data.get("stop_reason"),
-        "usage": data.get("usage") if isinstance(data.get("usage"), dict) else None,
+        "usage": usage,
         "model": payload["model"],
     }
 

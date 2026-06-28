@@ -138,14 +138,27 @@ export function Headlines() {
       setStories([]); // a past day with no brief
       return;
     }
+    // On a topic switch `rundown` briefly holds the previous topic's brief before
+    // the rail reloads — don't fetch stories for a mismatched slug/date pair.
+    if (rundown.topic_slug !== active) {
+      setStories(null);
+      return;
+    }
+    // Cancel guard: switching days within one topic (A→B→A) flips `rundown`
+    // synchronously and fires overlapping fetches; only the latest may set state.
+    let cancelled = false;
     setStories(null);
     api
       .briefStories(active, rundown.date)
-      .then(setStories)
+      .then((s) => !cancelled && setStories(s))
       .catch((e) => {
+        if (cancelled) return;
         push(String(e), "error");
         setStories([]);
       });
+    return () => {
+      cancelled = true;
+    };
   }, [active, rundown, push]);
 
   if (!tabsLoaded) return <div className="muted pad">Loading…</div>;

@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
 from . import config
 from .store import Store
@@ -77,3 +77,16 @@ def add_metrics_routes(
                 "active_users": sum(1 for u in users if u["last_login_at"]),
             },
         }
+
+    @router.get("/admin/metrics/users/{user_id}")
+    def user_detail(
+        user_id: int, range: str = "30d", user: dict = Depends(require_metrics)
+    ) -> dict[str, Any]:
+        """Drill-down for one user over the selected range: usage by purpose (+cost),
+        access frequency, subscriptions, and 👍/👎."""
+        days = _RANGES.get(range, 30)
+        since = (datetime.now(timezone.utc) - timedelta(days=days)).replace(microsecond=0)
+        detail = store.user_detail(user_id, since.isoformat())
+        if detail is None:
+            raise HTTPException(status_code=404, detail="unknown user")
+        return {"range": range if range in _RANGES else "30d", "since": since.isoformat(), **detail}

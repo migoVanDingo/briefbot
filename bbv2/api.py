@@ -15,7 +15,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Query
 
 from . import config
-from .ratelimit import limiter
+from .ratelimit import limiter, rate_limit_error
 from .store import Store
 
 MAX_LIMIT = 500
@@ -57,11 +57,7 @@ def create_app(store: Store) -> FastAPI:
         limit, window = config.ratelimit_consumer()
         ok, retry = limiter.check(("consumer", token), limit=limit, window_s=window)
         if not ok:
-            raise HTTPException(
-                status_code=429,
-                detail="Too many requests — slow down.",
-                headers={"Retry-After": str(int(retry) + 1)},
-            )
+            raise rate_limit_error(retry)
         return store.token_topic_slugs(token)
 
     @app.get("/health")

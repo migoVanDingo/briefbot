@@ -98,6 +98,11 @@ class Store(
             ("topics", "last_briefed_at", "TEXT"),
             ("sources", "collect_interval_min", "INTEGER"),
             ("sources", "last_collected_at", "TEXT"),
+            # Auto-drop dead/blocked feeds (0029): consecutive droppable-4xx fetch
+            # failures + the last error, so a source is disabled after a streak.
+            ("sources", "consecutive_failures", "INTEGER NOT NULL DEFAULT 0"),
+            ("sources", "last_error", "TEXT"),
+            ("sources", "last_error_at", "TEXT"),
             ("user_settings", "onboarded_at", "TEXT"),
             ("user_settings", "theme", "TEXT"),
             ("user_settings", "accent", "TEXT"),
@@ -112,6 +117,10 @@ class Store(
             ("topics", "image_path", "TEXT"),
             ("topics", "image_status", "TEXT NOT NULL DEFAULT 'none'"),
             ("token_usage", "topic_id", "INTEGER"),
+            # User profile avatars (0028): identicon by default; optional Grok image.
+            ("users", "avatar_path", "TEXT"),
+            ("users", "avatar_status", "TEXT NOT NULL DEFAULT 'none'"),
+            ("users", "avatar_prompt", "TEXT"),
         ):
             try:
                 self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
@@ -174,6 +183,18 @@ class Store(
             (image_path, status, slug),
         )
         self.conn.commit()
+
+    def claim_topic_image(self, slug: str) -> bool:
+        """Atomically move a topic's image from unset → 'pending'. Returns True only
+        for the caller that won the claim, so concurrent first-views don't double-fire
+        the (paid) image gen. SQLite serializes the UPDATE, closing the TOCTOU."""
+        cur = self.conn.execute(
+            "UPDATE topics SET image_status = 'pending' "
+            "WHERE slug = ? AND (image_status IS NULL OR image_status IN ('', 'none'))",
+            (slug,),
+        )
+        self.conn.commit()
+        return cur.rowcount == 1
 
     # ---- sources ----
     def add_source(
@@ -263,6 +284,40 @@ class Store(
     def set_source_status(self, source_id: int, status: str) -> None:
         self.conn.execute(
             "UPDATE sources SET status = ? WHERE id = ?", (status, source_id)
+        )
+        self.conn.commit()
+
+    # ---- auto-drop dead/blocked feeds (0029) ----
+    def bump_source_failure(self, source_id: int, error: str) -> int:
+        """Record a droppable fetch failure: increment the streak + store the error.
+        Returns the new consecutive-failure count."""
+        self.conn.execute(
+            "UPDATE sources SET consecutive_failures = consecutive_failures + 1, "
+            "last_error = ?, last_error_at = ? WHERE id = ?",
+            (error, utc_now_iso(), source_id),
+        )
+        self.conn.commit()
+        row = self.conn.execute(
+            "SELECT consecutive_failures FROM sources WHERE id = ?", (source_id,)
+        ).fetchone()
+        return int(row["consecutive_failures"]) if row else 0
+
+    def clear_source_failures(self, source_id: int) -> None:
+        """A successful fetch resets the streak (and clears the recorded error)."""
+        self.conn.execute(
+            "UPDATE sources SET consecutive_failures = 0, last_error = NULL, "
+            "last_error_at = NULL WHERE id = ? AND consecutive_failures != 0",
+            (source_id,),
+        )
+        self.conn.commit()
+
+    def disable_source(self, source_id: int, reason: str) -> None:
+        """Auto-disable a source (dead/blocked feed). Keeps the row + collected items;
+        records why so the admin UI can show it and the owner can re-enable/delete."""
+        self.conn.execute(
+            "UPDATE sources SET status = 'disabled', last_error = ?, last_error_at = ? "
+            "WHERE id = ?",
+            (reason, utc_now_iso(), source_id),
         )
         self.conn.commit()
 

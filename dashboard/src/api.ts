@@ -91,264 +91,15 @@ async function streamSSE(
   }
 }
 
-export interface Me {
-  user: { id: number; email: string; name: string; role: string; capabilities: string[] };
-  settings: { email_enabled: boolean; digest_limit: number };
-  // Per-user UI state persisted server-side (0018), not localStorage.
-  preferences: { theme: "light" | "dark" | null; accent: string | null };
-  flags: string[];
-  subscriptions: string[];
-  onboarded: boolean;
-  greeting: string;
-}
+export * from "./api.types";
 
-export interface Topic {
-  slug: string;
-  name: string;
-  description: string;
-  subscribed: boolean;
-  // Admin-only cadence context (present when the caller is an admin).
-  discover_interval_min?: number | null;
-  collect_interval_min?: number | null;
-  last_discovered_at?: string | null;
-}
-
-export interface Item {
-  item_id: string;
-  title: string;
-  url: string | null;
-  canonical_url: string | null;
-  source_name: string;
-  published_at: string | null;
-  fetched_at: string;
-  summary: string | null;
-  score: number;
-}
-
-export interface Story extends Item {
-  feedback_vote: number | null;
-  is_saved: boolean;
-}
-
-export interface StoryFilters {
-  search?: string;
-  source?: string;
-  topic?: string;
-  from?: string;
-  to?: string;
-  order?: "asc" | "desc";
-  limit?: number;
-}
-
-export interface Trending {
-  label: string;
-  trend_score: number;
-  item_count: number;
-  representative_title: string | null;
-  representative_url: string | null;
-}
-
-export interface BriefSource {
-  title: string;
-  url: string | null;
-  source_name: string;
-  item_id?: string | null;
-}
-
-export interface Brief {
-  topic_slug: string;
-  topic_name: string;
-  date: string;
-  title: string;
-  summary: string;
-  // Per-topic Grok Imagine header image (0024).
-  image_status: "none" | "pending" | "ready" | "error";
-  image_url: string | null;
-  trending: Trending[];
-  sources: BriefSource[];
-}
-
-export interface TopicTab {
-  slug: string;
-  name: string;
-}
-
-// One calendar day in the Headlines date rail: the topic's brief for that day,
-// or null if none was generated.
-export interface BriefDay {
-  date: string;
-  brief: Brief | null;
-}
-
-export interface Folder {
-  id: string;
-  name: string;
-  count: number;
-}
-
-export interface Favorite {
-  id: string;
-  item_id: string | null;
-  title: string;
-  url: string;
-}
-
-export interface ConversationMeta {
-  id: string;
-  title: string | null;
-  message_count: number | null;
-  created_at?: string;
-  updated_at?: string;
-}
-
-export interface ToolCall {
-  name: string;
-  summary: string;
-}
-
-export interface TopicProgress {
-  slug: string;
-  name?: string;
-  stage: string | null;
-  failed?: boolean;
-}
-
-// A durable provisioning run (0023) — polled from /api/provisioning.
-export interface ProvisionRun {
-  id: string;
-  slug: string;
-  name: string;
-  stage: string | null;
-  status: "running" | "done" | "error";
-  failed: boolean;
-  error: string | null;
-  surface: "chat" | "topics";
-  conversation_id: string | null;
-  message_id: string | null;
-}
-
-export interface ChatMessage {
-  id?: string;
-  role: "user" | "assistant";
-  content: string;
-  tool_calls?: ToolCall[];
-  // Live topic-provisioning pipelines (one per topic) when this turn ran
-  // create_topic — possibly several in a row (e.g. "sports, crypto, world news").
-  topics?: TopicProgress[];
-}
-
-export interface UsageStats {
-  interactions: number;
-  tokens_used: number;
-  limit: number;
-  window_s: number;
-  resets_in: number;
-  enabled: boolean;
-  blocked: boolean;
-}
-
-export interface Settings {
-  email_enabled: boolean;
-  digest_limit: number;
-}
-
-export interface Source {
-  id: number;
-  name: string;
-  url: string;
-  type: string;
-  status: string;
-  collect_interval_min?: number | null;
-  last_collected_at?: string | null;
-}
-
-// Admin scheduling (0020) — "run every <period> starting <date> at <time>".
-export type DiscoverPeriod = "day" | "week" | "month" | "year";
-export interface TopicSchedule {
-  slug: string;
-  name: string;
-  discover: {
-    period: DiscoverPeriod | null; // null → using the default cadence
-    start_date: string | null; // YYYY-MM-DD
-    at_min: number | null; // minutes into day (UTC)
-  };
-  collect: { interval_min: number | null };
-  caps: { max_sources: number | null; max_stories_per_source: number | null };
-  last_discovered_at: string | null;
-}
-export interface ScheduleDefaults {
-  discover_interval_min: number;
-  collect_interval_min: number;
-  max_sources: number;
-  max_stories_per_source: number;
-  window_min: number;
-}
-// -1 (or "") clears a field back to its default; omit a field to leave unchanged.
-export interface SchedulePatch {
-  discover_period?: DiscoverPeriod | "";
-  discover_start_date?: string; // YYYY-MM-DD or "" to clear
-  discover_at_min?: number;
-  collect_interval_min?: number;
-  max_sources?: number;
-  max_stories_per_source?: number;
-}
-
-// Admin metrics (0021)
-export interface UsageBucket {
-  input: number;
-  output: number;
-  cost: number;
-  calls: number;
-}
-export interface LlmMetrics {
-  range: string;
-  since: string;
-  overall: UsageBucket;
-  by_model: (UsageBucket & { model: string })[];
-  by_purpose: (UsageBucket & { purpose: string })[];
-  by_topic: (UsageBucket & { name: string; slug: string | null })[];
-  by_day: (UsageBucket & { date: string })[];
-  trend: { prev_cost: number; delta_pct: number | null };
-  prices: Record<string, { in: number; out: number }>;
-}
-export interface UserMetricRow {
-  id: number;
-  name: string;
-  email: string;
-  role: string;
-  status: string;
-  last_login_at: string | null;
-  tokens: number;
-  topics: number;
-  clicks: number;
-  votes: number;
-  saves: number;
-  chats: number;
-}
-export interface UserMetrics {
-  users: UserMetricRow[];
-  totals: { user_count: number; avg_topics: number; active_users: number };
-}
-
-export interface DiscoverStats {
-  queries: number;
-  results: number;
-  homepages: number;
-  candidates: number;
-  errors: number;
-  added: string[];
-}
-
-export interface CollectStats {
-  sources: number;
-  feeds: number;
-  items: number;
-  new: number;
-  not_modified: number;
-  errors: number;
-  reviewed?: number; // items the relevance review scanned (0024 fix)
-  dropped?: number; // off-topic items the review filtered out
-}
+// Types used by the client below are also imported locally (noUnusedLocals).
+import type {
+  Brief, BriefDay, ChatMessage, CollectStats, ConversationMeta, DiscoverStats,
+  Favorite, Folder, Item, LlmMetrics, Me, Profile, ProvisionRun, ScheduleDefaults,
+  SchedulePatch, Settings, Source, Story, StoryFilters, Topic, TopicSchedule,
+  TopicTab, UsageStats, UserDetail, UserMetrics,
+} from "./api.types";
 
 export const api = {
   // Trade the current Firebase ID token for a bbv2 session cookie (0019). Called
@@ -411,6 +162,21 @@ export const api = {
   adminLlmMetrics: (range = "30d") =>
     req<LlmMetrics>(`/api/admin/metrics/llm?range=${encodeURIComponent(range)}`),
   adminUserMetrics: () => req<UserMetrics>("/api/admin/metrics/users"),
+  adminUserDetail: (id: number, range = "30d") =>
+    req<UserDetail>(
+      `/api/admin/metrics/users/${id}?range=${encodeURIComponent(range)}`,
+    ),
+  profile: () => req<Profile>("/api/profile"),
+  generateAvatar: (prompt: string) =>
+    req<{ ok: boolean; status: string }>("/api/profile/avatar", {
+      method: "POST",
+      body: JSON.stringify({ prompt }),
+    }),
+  resetAvatar: () => req<{ ok: boolean }>("/api/profile/avatar", { method: "DELETE" }),
+  // Public avatar URL (identicon by default, generated image when ready). Cache-bust
+  // param lets the UI force a refetch after a generation completes.
+  avatarUrl: (userId: number, v?: string | number) =>
+    `${BASE}/api/avatar/${userId}${v != null ? `?v=${encodeURIComponent(String(v))}` : ""}`,
   topics: () => req<{ topics: Topic[] }>("/api/topics").then((d) => d.topics),
   createTopic: (body: { slug: string; name?: string; description?: string }) =>
     req<{ ok: boolean; slug: string; existed: boolean }>("/api/topics", {

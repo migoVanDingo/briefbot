@@ -9,6 +9,7 @@ dashboard_api.current_user). This is the only place the Firebase verifier runs.
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Callable
 
 from fastapi import APIRouter, Body, Depends, FastAPI, Header, HTTPException, Request, Response
@@ -17,6 +18,8 @@ from . import config, rbac
 from .api import _bearer
 from .authjwt import build_access_token
 from .store import Store
+
+log = logging.getLogger("bbv2.auth")
 
 Verifier = Callable[[str], dict[str, Any]]
 
@@ -80,16 +83,26 @@ def add_auth_routes(
         email = claims.get("email")
         if not email:
             raise HTTPException(status_code=401, detail="token has no email")
+        # Reject explicitly-unverified emails: Firebase email/password (and some
+        # providers) issue valid tokens with email_verified=false before the user
+        # proves they own the address. Trusting that would let an attacker register
+        # the owner's email and inherit the owner account/role. Google sign-in (the
+        # app's method) always sets it true; we only block an explicit false.
+        if claims.get("email_verified") is False:
+            raise HTTPException(status_code=403, detail="email not verified")
         name = claims.get("name") or email.split("@")[0]
         ip, ua = _client_ip(request), request.headers.get("user-agent")
 
         uid = store.add_user(name, email)  # upsert (auto-provision)
-        # Owner-only bootstrap: an ADMIN_EMAILS match → 'owner'. Never demotes.
+        # Owner-only bootstrap: an ADMIN_EMAILS match → 'owner'. Never demotes. An
+        # explicitly-unverified email was already rejected above, so reaching here
+        # means the email is verified (or the claim is absent, e.g. a test fake).
         if email.lower() in config.admin_emails():
             store.set_user_role(email, "owner")
         row = store.get_user(email)
         if row and (row["status"] or "active") != "active":
             store.log_auth_event(uid, "denied", ip, ua)
+            log.warning("exchange denied: user %s is disabled", uid)
             raise HTTPException(status_code=403, detail="account disabled")
 
         store.touch_last_login(uid)
@@ -97,6 +110,7 @@ def add_auth_routes(
         sid, refresh = store.create_session(uid, ip, ua, config.refresh_ttl_s())
         _set_auth_cookies(response, build_access_token(uid, sid), refresh)
         store.log_auth_event(uid, "login", ip, ua)
+        log.info("login: user %s (%s) from %s", uid, email, ip or "?")
         return {"ok": True, "user": {"id": uid, "email": email, "name": name}}
 
     @router.get("/session")
@@ -130,6 +144,7 @@ def add_auth_routes(
                     int(sess["user_id"]), "logout", _client_ip(request),
                     request.headers.get("user-agent"),
                 )
+                log.info("logout: user %s", sess["user_id"])
         _clear_auth_cookies(response)
         return {"ok": True}
 

@@ -40,12 +40,38 @@ const STEPS: Step[] = [
   },
 ];
 
+// Below the tablet breakpoint the nav collapses into the hamburger, so the
+// desktop per-link anchors are display:none — anchoring a tour to them breaks
+// (the original mobile onboarding bug). Use a body-centered intro + a step on the
+// visible hamburger instead.
+const MOBILE_STEPS: Step[] = [
+  {
+    target: "body",
+    placement: "center",
+    title: "Welcome to Briefbot 👋",
+    content:
+      "You're in Chat with Briefbot. Tell it what you want to follow and it'll set up a topic for you — it can also search your stories and summarize articles or papers.",
+  },
+  {
+    target: '[data-tour="menu"]',
+    title: "Find your way around",
+    content:
+      "Tap the menu for Headlines (your daily brief), Stories, Topics, and Favorites.",
+  },
+];
+
+function isMobile(): boolean {
+  return typeof window !== "undefined" && window.matchMedia("(max-width: 768px)").matches;
+}
+
 export function OnboardingTour() {
   const profile = useAuth((s) => s.profile);
   const hasFlag = useAuth((s) => s.hasFlag);
   const setFlag = useAuth((s) => s.setFlag);
   const navigate = useNavigate();
   const [run, setRun] = useState(false);
+  // Pick the step set once when the tour starts (desktop nav vs mobile hamburger).
+  const [steps, setSteps] = useState<Step[]>(STEPS);
 
   // The tour shows once per account (the `onboarding_done` flag), independent of
   // the server-side `onboarded` flag — which intentionally stays false through the
@@ -57,6 +83,7 @@ export function OnboardingTour() {
   useEffect(() => {
     if (needsTour) {
       navigate("/chat"); // first visit starts in chat with the agent's intro
+      setSteps(isMobile() ? MOBILE_STEPS : STEPS);
       setRun(true);
     }
   }, [needsTour, navigate]);
@@ -73,7 +100,7 @@ export function OnboardingTour() {
 
   return (
     <Joyride
-      steps={STEPS}
+      steps={steps}
       run={run}
       continuous
       onEvent={onEvent}

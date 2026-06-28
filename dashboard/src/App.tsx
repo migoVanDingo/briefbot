@@ -19,6 +19,7 @@ import { TopicDetail } from "./pages/admin/TopicDetail";
 import { Scheduling } from "./pages/admin/Scheduling";
 import { Metrics } from "./pages/admin/Metrics";
 import { Settings } from "./pages/Settings";
+import { Profile } from "./pages/Profile";
 
 // Gate the admin area: users without the admin capability are redirected to
 // Headlines. (Enforcement is on the backend; this just hides the unreachable UI.)
@@ -67,6 +68,7 @@ export default function App() {
             <Route path="stories" element={<Stories />} />
             <Route path="favorites" element={<Favorites />} />
             <Route path="topics" element={<TopicsHome />} />
+            <Route path="profile" element={<Profile />} />
             <Route path="settings" element={<Settings />} />
             {/* Admin — source curation, gated to admins (backend enforces 403) */}
             <Route

@@ -68,7 +68,11 @@ keeps one shared connection since each connection is a separate in-memory DB.
 `spaces` + `space_membership` (user-spaces foundation, 0019),
 `story_feedback`, `briefs` (UNIQUE `topic_id,date` — also the shared rundown cache),
 `favorite_folders` + `favorite_links`, `conversations` + `conversation_messages`,
-`token_usage` (per-user + `system` (user_id 0) LLM spend).
+`provision_runs` (durable provisioning jobs, 0023), `story_clicks` (engagement, 0021),
+`token_usage` (per-user + `system` (user_id 0) LLM spend; `purpose`, `topic_id`,
+and an `image` purpose for per-image cost, 0027). `topics` carry per-topic
+scheduling/caps + `image_path`/`image_status` (0020/0024); `users` carry
+`avatar_path`/`avatar_status`/`avatar_prompt` (0028).
 
 **IDs:** PKs are prefixed ULIDs (`ids.py`) — `ITM`/`SRC`/`TOP`/`CLU`/`FAV`/`FLD`/
 `CON`/`MSG`/`BRF`. Item dedupe is by `dedupe_key` (`url:` / `fallback:`), so the
@@ -81,6 +85,10 @@ ULID PK isn't content-derived; `store.upsert_item` returns the canonical id.
   `map_item_topic` (with `relevant = NULL`, pending review). Capped at
   `MAX_STORIES_PER_SOURCE` (newest-first, default 7) per source; per-item upserts
   are best-effort (a bad item/transient DB error is counted, not fatal).
+  **Auto-drop (0029):** a source that returns a droppable 4xx (401/403/404; 410 =
+  immediate) for `BBV2_SOURCE_DROP_THRESHOLD` (default 3) consecutive collects is
+  **disabled** with the reason recorded (`sources.last_error`); any success resets
+  the streak. 429/5xx/timeouts are transient and never count.
 - **Relevance quickscan** (`review.py` → `relevance.classify_batch`): after
   collect, batches each topic's **pending** items (~20: id + title + blurb) to
   Haiku, which decides which are genuinely on-topic; writes `item_topics.relevant`
@@ -215,10 +223,36 @@ ULID PK isn't content-derived; `store.upsert_item` returns the canonical id.
   via `GET /api/topics/{slug}/image`; shown as the Headlines brief banner (shimmer
   while pending). Best-effort — moderation/errors just yield no image.
 
+## Observability, metrics & profiles (0026–0028)
+
+- **Logging (0026):** `logging_setup.configure_logging()` is the one init point,
+  called by `serve` + the CLI `main`. Env-driven level (`BBV2_LOG_LEVEL`, `-v` →
+  DEBUG) + format (`BBV2_LOG_FORMAT=text|json`); logs to **stderr** (journald/cron
+  capture) + a rotating file under `BBV2_LOG_DIR`. Modules use
+  `logging.getLogger("bbv2.<area>")`; noisy third parties pinned to WARNING. The
+  LLM/HTTP layers DEBUG per call (model + token volume, never bodies), auth logs
+  login/logout, the agent logs turn start/done, and `serve` registers a global
+  exception handler so unhandled 500s log a traceback.
+- **Metrics (0021 + 0027):** `store.usage_summary` rolls up `token_usage` into
+  est. cost by model / **purpose** (friendly labels via `metrics_labels.py`) /
+  topic / day; **image** spend is priced per image (`config.image_price()`, 0
+  tokens) and folded in. NULL-topic spend is bucketed as "Not topic-specific"
+  (`kind:"background"`). `store.user_detail` powers the per-user drill-down
+  (`GET /api/admin/metrics/users/{id}`): usage by purpose, login/active-day counts
+  from `auth_events`, subscriptions, and 👍/👎.
+- **Profiles & avatars (0028):** `/api/profile` returns the user + `user_profile_stats`
+  (subscriptions + tokens/cost over rolling day/week/month/year/all windows).
+  Avatars default to a deterministic **identicon** (`identicon.py`, seeded on email);
+  a user can submit a prompt to generate one via Grok (`avatar_image.start_avatar`
+  → bounded pool, atomic `claim_avatar`, metered as `image`). `GET /api/avatar/{id}`
+  serves the stored JPEG when `ready`, else the identicon SVG — so it always renders.
+
 ## Frontend
 
 `AppShell` (nav + theme) wraps routes: `/headlines` (tabbed brief), `/chat`,
-`/stories`, `/favorites`, `/topics` (user flow), `/admin/topics*` (admin-gated).
+`/stories`, `/favorites`, `/topics` (user flow), `/profile` (avatar + personal
+metrics + blog stub, 0028), `/admin/topics*` + `/admin/metrics` (admin-gated;
+metrics has a clickable per-user drawer).
 State: Zustand (`auth`, `toasts`, theme, `headlinesNav`). Theme tokens in
 `theme.ts` → injected CSS vars. **Below the tablet breakpoint (≤768px)** the
 topbar collapses to a **hamburger menu** (+ theme toggle): main nav · a dynamic

@@ -32,14 +32,19 @@ export function Favorites() {
 
   useEffect(() => {
     if (!active) return;
+    let cancelled = false; // fast folder switches must not land an earlier fetch
     setItems(null);
     api
       .favoriteItems(active)
-      .then((d) => setItems(d.items))
+      .then((d) => !cancelled && setItems(d.items))
       .catch((e) => {
+        if (cancelled) return;
         push(String(e), "error");
         setItems([]);
       });
+    return () => {
+      cancelled = true;
+    };
   }, [active, push]);
 
   const create = async (e: React.FormEvent) => {

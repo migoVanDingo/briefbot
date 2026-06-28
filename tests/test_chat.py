@@ -333,3 +333,42 @@ def test_execute_tool_favorites_via_query():
     assert res["saved"] is True
     listed, summary = execute_tool(store, uid, "list_favorites", {}, lambda *a, **k: "")
     assert [i["title"] for i in listed["items"]] == ["Bitcoin rallies on ETF approval"]
+
+
+def test_run_chat_turn_tool_error_keeps_stream_alive(monkeypatch):
+    """A tool error (e.g. a 'database is locked') must NOT abort the SSE stream or
+    leave the conversation half-written (0025 C1)."""
+    import bbv2.agent as agent_mod
+
+    store = Store(":memory:")
+    uid = store.add_user("Me", "me@example.com")
+    cid = store.create_conversation(uid)
+
+    calls = {"n": 0}
+
+    def fake_model(messages, tools=None, system=None):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return {
+                "content": [
+                    {"type": "tool_use", "id": "t1", "name": "search_stories",
+                     "input": {"query": "x"}}
+                ],
+                "stop_reason": "tool_use",
+            }
+        return {"content": [{"type": "text", "text": "Sorry, that didn't work."}],
+                "stop_reason": "end_turn"}
+
+    def boom(*a, **k):
+        raise RuntimeError("database is locked")
+
+    monkeypatch.setattr(agent_mod, "execute_tool", boom)
+    events = list(
+        run_chat_turn(store, uid, cid, "find x", call_model=fake_model, title_fn=lambda u: "T")
+    )
+    types = [e["type"] for e in events]
+    assert types[-1] == "done"  # stream completed cleanly despite the tool error
+    assert "tool_end" in types  # spinner was closed
+    msgs = store.get_messages(cid)
+    assert msgs[-1]["role"] == "assistant"  # assistant turn persisted (not half-written)
+    assert msgs[-1]["content"].strip()

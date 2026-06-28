@@ -56,6 +56,16 @@ def generate_topic_image(
         path = directory / f"{slug}.jpg"
         path.write_bytes(data)
         store.set_topic_image(slug, str(path), READY)
+        # Meter one image to the system bucket so it shows in the cost breakdown
+        # (priced per-image, not per-token — input/output stay 0). Best-effort.
+        try:
+            topic = store.get_topic(slug)
+            store.record_usage(
+                0, "image", config.grok_image_model(), 0, 0,
+                topic_id=int(topic["id"]) if topic else None,
+            )
+        except Exception:  # pragma: no cover - never fail the gen on metering
+            pass
         log.info("topic image ready: %s", slug)
     except Exception as exc:  # noqa: BLE001 - best-effort; never crash the pool
         log.warning("topic image gen failed for %s: %s", slug, exc)
@@ -80,5 +90,8 @@ def maybe_kick(store: Store, topic_row, summary: str | None) -> None:
     if status not in (None, "", "none"):
         return  # already pending / ready / errored — leave it
     slug = topic_row["slug"]
-    store.set_topic_image(slug, None, PENDING)
+    # Atomic claim: only the thread that wins the unset→pending UPDATE submits, so
+    # concurrent first-views can't both fire the (paid) image gen.
+    if not store.claim_topic_image(slug):
+        return
     submit(store, slug, topic_row["name"], summary or "")

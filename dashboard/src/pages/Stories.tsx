@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import FeedIcon from "@mui/icons-material/FeedOutlined";
 import SearchIcon from "@mui/icons-material/Search";
 import { api, type Story } from "../api";
@@ -20,7 +20,11 @@ export function Stories() {
   const [to, setTo] = useState("");
   const [order, setOrder] = useState<Order>("desc");
 
+  // Sequence guard: rapid filter changes can resolve out of order; only the latest
+  // request is allowed to set state, so a slow earlier fetch can't overwrite it.
+  const seq = useRef(0);
   const load = useCallback(async () => {
+    const mine = ++seq.current;
     setStories(null);
     try {
       const items = await api.queryStories({
@@ -32,10 +36,12 @@ export function Stories() {
         order,
         limit: 50,
       });
-      setStories(items);
+      if (mine === seq.current) setStories(items);
     } catch (e) {
-      push(String(e), "error");
-      setStories([]);
+      if (mine === seq.current) {
+        push(String(e), "error");
+        setStories([]);
+      }
     }
   }, [search, source, topic, from, to, order, push]);
 

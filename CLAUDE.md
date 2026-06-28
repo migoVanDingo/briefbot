@@ -114,10 +114,18 @@ bbv2/
   collect.py     pipeline wiring
   api.py         FastAPI consumer API (service-token read: /health · /consumer/*)
   auth.py        Firebase ID-token verification (dashboard)
-  dashboard_api.py  /api/* routes (Firebase auth) — me/topics/sources/headlines/settings
+  dashboard_api.py  /api/* routes (Firebase auth) — me/topics/sources/settings
+  dashboard_briefs.py  headlines/stories/briefs routes (split from dashboard_api, 0025)
+  dashboard_serial.py  shared response serializers (story_dict/serialize_brief)
+  dashboard_profile.py  /api/profile + /api/avatar routes (0028)
+  dashboard_metrics.py  /admin/metrics/* (cost + per-user drill-down, 0021/0027)
+  logging_setup.py  configure_logging() — central log config (0026)
+  metrics_labels.py  friendly purpose labels for the cost breakdown (0027)
+  identicon.py   deterministic GitHub-style avatar SVG (0028)
+  topic_image.py / avatar_image.py  Grok Imagine bg image gen (topics / avatars)
   notify.py      Notifier protocol + LogNotifier + MailgunNotifier
   digest.py      per-user recent-items digest (non-LLM)
-  cli.py         `python -m bbv2 …`
+  cli.py         `python -m bbv2 …`  (-v/--verbose for DEBUG logs)
 scripts/collect.sh
 tests/           pytest (network-free; uses tests/fixtures/sample_feed.xml)
 ```
@@ -148,7 +156,10 @@ topics`, prefixed ULIDs, brief engine, chat agent) · **`0009` user topic flow +
 owner-only roles + guardrails** · `0010`–`0015` relevance/chat/budget/cadence
 polish · **`0016` tech-debt + hardening** (SSRF guard `safefetch`, env CORS/bind,
 token revoke, collect recency filter, moderation metering, cron logging, CSS
-split, SSE abort, dead-code removal — see `_plans/0016`).
+split, SSE abort, dead-code removal) · `0017` headlines date rail · `0018`–`0024`
+(UI-state-in-DB, auth/RBAC/spaces, scheduling, metrics, `/consumer`, durable
+provisioning, topic images) · **`0025` review + fixes** · **`0026` logging** ·
+**`0027` metrics expansion** · **`0028` profiles + avatars** (see `_plans/`).
 
 ## Deployment (production)
 
@@ -163,18 +174,21 @@ dashboard :5180).
 
 ## WHERE WE ARE — current state
 
-**Shipped & deployed** through `0023` (`0018` DB-persisted UI state · `0019` auth
-sessions + RBAC + spaces · `0020` per-topic scheduling + caps (Admin → Scheduling)
-· `0021` admin metrics (LLM cost + user engagement) · `0022` consumer API under
-`/consumer` · `0023` durable provisioning pipelines — background `provision_runs`
-+ poll, survive navigation, shown in chat + Topics). Working end-to-end:
+**Shipped & deployed** through `0024`; **`0025`–`0028` built locally (not yet
+pushed)**: `0018` DB-persisted UI state · `0019` auth sessions + RBAC + spaces ·
+`0020` per-topic scheduling + caps · `0021` admin metrics · `0022` consumer API
+under `/consumer` · `0023` durable provisioning pipelines · `0024` topic header
+images · **`0025` codebase review + fixes** (security/concurrency/modularity/
+mobile) · **`0026` structured logging** · **`0027` metrics expansion** · **`0028`
+user profiles + avatars**. Working end-to-end:
 
 - **Routes:** `/headlines` (per-topic tabs; a left **date rail** of the last 10
   days *with briefs* → that day's AI brief + that day's stories), `/chat` (Haiku
   tool-use agent, SSE — search/summarize/**create or subscribe to topics**),
   `/stories` (search/source/date/sort + vote + ☆ save), `/favorites` (folders),
-  `/topics` (user create→moderate→provision→subscribe), `/admin/topics`
-  (admin-only source curation), `/settings`.
+  `/topics` (user create→moderate→provision→subscribe), `/profile` (avatar +
+  personal metrics + blog stub), `/admin/topics` (source curation), `/admin/
+  metrics` (cost + per-user drill-down), `/settings`.
 - **Per-page Joyride tutorials** (`PageTour` + `lib/tours`) with a ⓘ relaunch button;
   responsive **hamburger** nav below the tablet breakpoint.
 - **Topic create flow:** tiered moderation (validation → keyword denylist → Haiku
@@ -194,16 +208,30 @@ sessions + RBAC + spaces · `0020` per-topic scheduling + caps (Admin → Schedu
 - **IDs:** prefixed ULIDs via `bbv2/ids.py`; dedupe on `dedupe_key`.
 - **Cost control:** per-user daily **token budget** (Haiku/Grok metered); LLM is
   user-invoked + background (tick/nightly to a system bucket). Moderation fails closed.
-- **Hardening (0016):** SSRF guard (`safefetch`), env-driven CORS/bind, consumer-token
-  revoke, collect recency filter, logging. **149 pytest pass; dashboard build clean.**
+- **Logging (0026):** `bbv2/logging_setup.py::configure_logging()` (called by serve +
+  CLI); env-driven `BBV2_LOG_LEVEL`/`BBV2_LOG_FORMAT`, `-v` for DEBUG; instruments
+  LLM/HTTP/auth/agent/background; global 500 handler logs tracebacks. To stderr +
+  a rotating file (journald/cron capture it).
+- **Metrics (0021 + 0027):** est. LLM cost by model/**purpose** (friendly labels)/
+  topic/day + **per-image** cost; click a user → drill-down (usage, access, subs, 👍/👎).
+- **Profiles (0028):** `/profile` — identicon avatar (or Grok-generated from a prompt,
+  `GET /api/avatar/{id}` serves either) + personal tokens/cost (day/week/month/year/all)
+  + subscriptions + **blog stub**. `users.avatar_*` columns; `bbv2/avatar_image.py`.
+- **Hardening (0016 + 0025):** SSRF guard (`safefetch`), env CORS/bind, token revoke;
+  `0025` added the `email_verified` exchange gate, thread-safe rate limiter, chat
+  tool-call guard, brief/image dedup, and the `dashboard_api` split. **193 pytest
+  pass; dashboard build clean.**
 
 ## Backlog / next (each its own plan — see `_documentation/roadmap.md`)
 
 - Settings accent **color picker** (`accent` column + `/api/preferences` exist —
-  frontend-only now); **logo** done; **topic header images** done (0024, Grok
-  Imagine); per-**article** images on cards still TODO.
-- **User spaces** — scope topics/headlines per space + spaces UI + invites (the
-  `0019` `spaces`/`space_membership` + capability scoping are the foundation).
+  frontend-only now); per-**article** images on cards still TODO.
+- **User spaces** — the **profile** slice shipped (`0028`); still: scope topics/
+  headlines per space + spaces UI + invites + the real **blog engine** behind the
+  profile stub (`0019` `spaces`/`space_membership` + caps are the foundation).
+- **Deferred `0025` refactors** (low-value, do when next touched) — see
+  `roadmap.md`: agent tool registry, `provision_runner.start_run`, `api.ts` types
+  split, `cli with_store`, and a handful of frontend lows.
 - **Persistent clusters** → Stories cluster/tag filters + better brief selection.
 - **Collect time-of-day** — `0020` gave discovery daily/weekly scheduling; collection
   is still interval-only (covers the freshness use case). Extend if needed.

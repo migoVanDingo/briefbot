@@ -14,6 +14,10 @@ interface AuthState {
   clearFlag: (flag: string) => void;
   // RBAC (0019): does the signed-in user hold this capability? Owner holds '*'.
   can: (capability: string) => boolean;
+  // Cache-bust token for the user's avatar (0028) — bumped after a generation/reset
+  // so the topbar <img> refetches instead of showing the stale cached image.
+  avatarVersion: number;
+  bumpAvatar: () => void;
 }
 
 export const useAuth = create<AuthState>((set, get) => ({
@@ -40,4 +44,6 @@ export const useAuth = create<AuthState>((set, get) => ({
     const caps = get().profile?.user.capabilities ?? [];
     return caps.includes("*") || caps.includes(capability);
   },
+  avatarVersion: 0,
+  bumpAvatar: () => set({ avatarVersion: get().avatarVersion + 1 }),
 }));

@@ -1,18 +1,22 @@
 # bbv2 — Roadmap & backlog
 
-Phased build is tracked in [`../_plans/`](../_plans/) (shipped through `0023` —
+Phased build is tracked in [`../_plans/`](../_plans/) (shipped through `0028` —
 `0018` theme/tour state in DB, `0019` sessions + RBAC + spaces, `0020` per-topic
 scheduling + caps, `0021` admin metrics, `0022` consumer API under `/consumer`,
-`0023` durable provisioning pipelines). This file holds what's **left** — backlog
-and known rough edges.
+`0023` durable provisioning pipelines, `0024` topic header images, `0025`
+codebase review + fixes, `0026` logging, `0027` metrics expansion, `0028` user
+profiles + avatars, `0029` auto-drop dead/blocked feeds). This file holds what's
+**left** — backlog and rough edges.
 
 ## Next (each its own plan)
 
 - **Settings:** per-user **accent color picker** — the `user_settings.accent`
   column + `PATCH /api/preferences {accent}` already exist (0018); this is now a
   pure frontend task (picker UI → write `accent`, apply as a CSS var).
-- **User spaces (build on the 0019 foundation):** per-space scoping of topics/
-  headlines, a spaces UI, and invites/membership (`spaces` + `space_membership` +
+- **User spaces (build on the 0019 + 0028 foundation):** the **profile** slice
+  shipped in `0028` (avatar + personal metrics + blog *stub*). Still pending:
+  per-space scoping of topics/headlines, a spaces UI, invites/membership, and the
+  real **blog engine** behind the profile stub (`spaces` + `space_membership` +
   capability scoping already in place; existing features are still global).
 - ~~**Logo**~~ — done. ~~**Topic header images**~~ — done (0024: per-topic Grok
   Imagine image on the Headlines brief).
@@ -56,9 +60,10 @@ Bigger directional bets — not yet specced. Each would get its own plan.
   topic (beyond the daily cadence).
 - **Papers/PDF mode.** The agent already mentions papers — add arXiv/PDF ingest +
   grounded summarize for research-y topics.
-- **Admin metrics view.** Token spend per user + the `system` bucket, collection
-  health (sources failing/stale), per-topic freshness — for keeping the bill and
-  the feeds healthy.
+- ~~**Admin metrics view.**~~ — **done** (`0021` + `0027`): est. LLM cost by
+  model/purpose/topic/day, per-image cost, friendly purpose labels, and a
+  per-user drill-down (usage, access frequency, subscriptions, 👍/👎). Still
+  open: **collection health** (sources failing/stale) + per-topic freshness.
 
 ## Known issues / refinements
 
@@ -76,14 +81,14 @@ Bigger directional bets — not yet specced. Each would get its own plan.
   scale, add a cheap pre-filter before the LLM call.
 - **Semantic search.** Stories + Favorites search is token-AND (LIKE). Embeddings
   would enable true semantic search; pairs with persistent clusters below.
-- **Token metering gap (0012).** Chat + provision **review** (`classify_batch`)
-  are metered per user; discovery's `expand_keywords` call is not (deep in
-  `discover_sources`). Thread a metered `generate` through to count it. Budget is
+- **Token metering (0012, mostly closed).** Chat, provision **review**, and now the
+  discovery **query crafter** (`craft_queries`, metered via the injected `query_gen`)
+  are all metered per user/system; image gen is metered per-image (0027). Budget is
   per-`bbv2 serve` process scale — fine for personal use.
-- **Rate limiter is single-process (0013).** `ratelimit.limiter` is in-memory:
-  resets on restart, not shared across workers. Fine for one `bbv2 serve`; a
-  multi-process deploy would need shared counters (SQLite/Redis). Outbound backoff
-  is per-call (no global circuit breaker) — adequate at this scale.
+- **Rate limiter is single-process (0013, thread-safe as of 0025).**
+  `ratelimit.limiter` is in-memory + lock-guarded: resets on restart, not shared
+  across workers. Fine for one `bbv2 serve`; a multi-process deploy would need
+  shared counters (SQLite/Redis). Outbound backoff is per-call — adequate at this scale.
 
 ## Tech debt + security audit
 
@@ -99,16 +104,35 @@ HTML-stripped ingest, Firebase-verified auth on every route, owner-only admin
 gating, no IDOR, prompt-injection wrapped + fail-closed moderation, secrets
 gitignored.
 
+**A second review pass ran 2026-06-27 (plan `0025`)** — verified findings across
+security, concurrency, modularity, and frontend/mobile. Fixed: Firebase
+`email_verified` gate at exchange (owner-impersonation), thread-safe rate limiter,
+chat tool-call exception guard + budget mid-loop recheck, `get_or_build_brief` /
+topic-image dedup (atomic claims), `dashboard_api.py` split back under the 600 cap
+(`dashboard_briefs.py` + `dashboard_serial.py`), shared `rate_limit_error`/
+`story_dict` helpers, and the mobile fixes (onboarding tour anchors, fetch-race
+guards, Headlines topic guard, TopicDetail/Stories/Scheduling overflow, collapsible
+mobile chat strip). **Structured logging shipped in `0026`** (closes the
+observability gap below).
+
 **[accepted] (left at personal scale — revisit if the surface widens):**
 - **Consumer-token *hashing*** — tokens are stored plaintext (now revocable). The
   token is a PK+FK and a live trader token exists, so hashing is a risky migration
   for marginal gain at family scale. Hash if the API ever faces untrusted clients.
-- **Near-cap files** (`dashboard_api.py` ~547, `store.py` ~521, `cli.py` ~499) —
-  all under the 600 cap; split when next substantially touched, not preemptively.
 - **`/me` auto-marks onboarding** on a GET (idempotent, own-user; a smell, harmless).
-- **In-memory single-process rate limiter** (idle keys now swept) + per-statement
+- **In-memory rate limiter** (now thread-safe + idle-swept) + per-statement
   autocommit — fine for one `bbv2 serve`; needs shared counters only for multi-worker.
-- No structured **observability** (request logs, error capture, metrics) — future.
+
+**Deferred from the `0025` review (low-value refactors, do when next touched):**
+- Move agent tool **bodies** into an `agent_tools.py` registry (schema/impl colocated)
+  — `agent.py` is ~573 lines (under cap).
+- Extract one `provision_runner.start_run()` to dedupe the provisioning wiring shared
+  by `dashboard_api.provision` and `agent._create_topic_events`.
+- Split `api.ts` interfaces into `api.types.ts`; `cli.py` `with_store` contextmanager;
+  an `llm_errors()` wrapper for the repeated `try/except → HTTPException(400)`.
+- Frontend lows: `useAsync`/`useSubscribe` hooks, ≥40px touch targets, Google-signin
+  busy guard, Settings number-input clamp, null-url StoryRow renders a link, prune
+  dead CSS (`.vote-btn`/`.cadence-*`/`.story-summary`).
 
 ## Done (for reference)
 
@@ -144,4 +168,15 @@ the `--surface2`/`--accent2` CSS-var fix. **Headlines date rail (0017):** droppe
 the "Today" aggregate tab (tabs are now just topics); added a left rail of the last
 10 calendar days (`GET /topics/{slug}/briefs`) — pick a day to see that day's brief
 + only that day's stories; collapsed the redundant Trending/Sources lists in the
-brief card (the story list already shows title + blurb + time).
+brief card (the story list already shows title + blurb + time). **0018–0028:**
+DB-persisted UI state (0018); backend auth sessions + RBAC + spaces foundation
+(0019); per-topic scheduling + ingest caps (0020); admin metrics — est. LLM cost +
+user engagement (0021); consumer API under `/consumer` (0022); durable provisioning
+pipelines that survive navigation (0023); per-topic Grok Imagine header images
+(0024); **codebase review + fixes** — `email_verified` gate, thread-safe limiter,
+chat tool guard + budget recheck, brief/image dedup, `dashboard_api` split, mobile
+fixes (0025); **structured logging** — env-driven level/format, `-v`, LLM/auth/
+background instrumentation, global 500 handler (0026); **metrics expansion** —
+cost by purpose with friendly labels, per-image cost, per-user drill-down (0027);
+**user profiles** — identicon avatars + optional Grok-generated avatar, personal
+metrics (tokens/cost per day/week/month/year/all), subscriptions, blog *stub* (0028).

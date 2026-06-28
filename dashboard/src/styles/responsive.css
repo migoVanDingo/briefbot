@@ -21,9 +21,35 @@
     grid-template-columns: 1fr;
     grid-template-rows: auto 1fr;
   }
+  /* Was a 28vh vertical band that ate a third of the screen above every chat.
+     Make it a slim horizontal strip: a New button + horizontally-scrolling
+     conversation chips, so the message area keeps almost the full height. */
   .chat-side {
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
     border-right: none;
     border-bottom: 1px solid var(--border);
-    max-height: 28vh;
+    max-height: none;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 8px 10px;
+  }
+  .chat-new {
+    width: auto;
+    margin-bottom: 0;
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+  .chat-side .convo-list {
+    flex-direction: row;
+    flex-wrap: nowrap;
+  }
+  .chat-side .convo-item {
+    width: auto;
+    white-space: nowrap;
+  }
+  .chat-side .usage-meter {
+    display: none; /* off the strip on mobile; budget warnings still surface inline */
   }
 }

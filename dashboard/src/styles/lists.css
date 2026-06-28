@@ -50,6 +50,7 @@
 }
 .detail-actions {
   display: flex;
+  flex-wrap: wrap; /* 3 text buttons must wrap below ~480px instead of overflowing */
   gap: 8px;
 }
 .section {

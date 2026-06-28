@@ -42,6 +42,11 @@ CREATE TABLE IF NOT EXISTS sources (
     discovered_by TEXT,
     collect_interval_min INTEGER,
     last_collected_at TEXT,
+    -- Auto-drop dead/blocked feeds (0029): a streak of droppable 4xx fetch
+    -- failures disables the source; reset to 0 on any successful fetch.
+    consecutive_failures INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT,
+    last_error_at TEXT,
     created_at TEXT NOT NULL,
     UNIQUE(type, url)
 );
@@ -107,6 +112,10 @@ CREATE TABLE IF NOT EXISTS users (
     role TEXT NOT NULL DEFAULT 'human',
     status TEXT NOT NULL DEFAULT 'active',
     last_login_at TEXT,
+    -- Profile avatar (0028): identicon by default; optional Grok-generated image.
+    avatar_path TEXT,
+    avatar_status TEXT NOT NULL DEFAULT 'none',  -- none | pending | ready | error
+    avatar_prompt TEXT,
     created_at TEXT NOT NULL
 );
 

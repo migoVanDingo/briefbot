@@ -13,6 +13,7 @@ model call, title generator, and summarizer are injectable for offline tests.
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime, timezone
 from typing import Any, Callable, Iterator
 
@@ -28,6 +29,8 @@ from .usage import (
     metered_generate,
     metered_relevance_generate,
 )
+
+log = logging.getLogger("bbv2.agent")
 
 MAX_ITERATIONS = 8
 MAX_RESULT_CHARS = 8000
@@ -449,8 +452,10 @@ def run_chat_turn(
 
     gate = budget_status(store, user_id)
     if not gate["allowed"]:
+        log.info("chat turn blocked (budget) user=%s", user_id)
         yield {"type": "error", "message": gate["message"]}
         return
+    log.info("chat turn start user=%s conv=%s", user_id, conversation_id)
 
     needs_title = not (conv["title"] or "").strip()
     # First message of the user's first-ever conversation → **persist** the canned
@@ -475,10 +480,19 @@ def run_chat_turn(
     assistant_text = ""
     tool_log: list[dict[str, Any]] = []
 
-    for _ in range(MAX_ITERATIONS):
+    for i in range(MAX_ITERATIONS):
+        # Re-check the budget each iteration: one turn can loop several model calls,
+        # so a turn that started under budget can exhaust it mid-loop. (First pass is
+        # already covered by the pre-loop gate.)
+        if i > 0 and not budget_status(store, user_id)["allowed"]:
+            note = "\n\n_(Stopped — daily usage limit reached.)_"
+            assistant_text += note
+            yield {"type": "token", "text": note}
+            break
         try:
             resp = call_model(messages, tools=TOOL_SCHEMAS, system=system)
         except LLMError as exc:
+            log.warning("chat model call failed user=%s: %s", user_id, exc)
             yield {"type": "error", "message": str(exc)}
             return
         meter_usage(store, user_id, "chat", resp.get("usage"), resp.get("model"))
@@ -500,24 +514,41 @@ def run_chat_turn(
                 continue
             name = b.get("name") or ""
             args = b.get("input") or {}
-            if name == "create_topic":
-                # Spawns a background provision run + emits tool_start/topic_run/tool_end.
-                result, summary = yield from _create_topic_events(
-                    store,
-                    user_id,
-                    args,
-                    conversation_id=conversation_id,
-                    message_id=assistant_message_id,
-                    moderate_generate=moderate_generate,
-                    review_generate=review_generate,
-                )
-            else:
-                yield {"type": "tool_start", "name": name}
-                result, summary = execute_tool(store, user_id, name, args, summarize_generate)
+            # Guard tool dispatch: a tool error (or a `database is locked` from a
+            # store call) must NOT abort the SSE stream and leave the conversation
+            # half-written. Convert it into an error tool_result so the model can
+            # recover, keep the stream alive, and still persist the assistant turn.
+            is_error = False
+            try:
+                if name == "create_topic":
+                    # Spawns a background provision run + emits tool_start/topic_run/tool_end.
+                    result, summary = yield from _create_topic_events(
+                        store,
+                        user_id,
+                        args,
+                        conversation_id=conversation_id,
+                        message_id=assistant_message_id,
+                        moderate_generate=moderate_generate,
+                        review_generate=review_generate,
+                    )
+                else:
+                    yield {"type": "tool_start", "name": name}
+                    result, summary = execute_tool(store, user_id, name, args, summarize_generate)
+                    yield {"type": "tool_end", "name": name, "summary": summary}
+            except Exception as exc:  # noqa: BLE001 - keep the stream alive
+                log.exception("chat tool %r failed user=%s", name, user_id)
+                is_error = True
+                summary = f"{name} couldn't complete"
+                result = f"Error running {name}: {exc}"
                 yield {"type": "tool_end", "name": name, "summary": summary}
             tool_log.append({"name": name, "summary": summary})
             tool_results.append(
-                {"type": "tool_result", "tool_use_id": b.get("id"), "content": _result_string(result)}
+                {
+                    "type": "tool_result",
+                    "tool_use_id": b.get("id"),
+                    "content": _result_string(result),
+                    "is_error": is_error,
+                }
             )
         messages.append({"role": "user", "content": tool_results})
     else:
@@ -538,4 +569,5 @@ def run_chat_turn(
         store.set_conversation_title(user_id, conversation_id, title)
         yield {"type": "title", "title": title}
 
+    log.info("chat turn done user=%s conv=%s tools=%d", user_id, conversation_id, len(tool_log))
     yield {"type": "done", "conversation_id": conversation_id}

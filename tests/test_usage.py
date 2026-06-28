@@ -158,6 +158,8 @@ def test_usage_summary_attributes_by_topic():
     assert s["overall"]["cost"] > 0
     by_topic = {t["name"]: t for t in s["by_topic"]}
     assert "Crypto" in by_topic and by_topic["Crypto"]["input"] == 1000
-    assert "(background)" in by_topic  # NULL topic spend bucketed separately
+    # NULL topic spend bucketed separately, relabeled + flagged (0027)
+    assert "Not topic-specific" in by_topic
+    assert by_topic["Not topic-specific"]["kind"] == "background"
     models = {m["model"] for m in s["by_model"]}
     assert "grok-3-mini" in models and "claude-haiku-4-5" in models

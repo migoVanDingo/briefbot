@@ -267,7 +267,11 @@ export function TopicDetail() {
                   <div className="src-info">
                     <div className="list-title">
                       {s.name}
-                      {s.status === "disabled" && <span className="chip danger">disabled</span>}
+                      {s.status === "disabled" && (
+                        <span className="chip danger">
+                          disabled{s.last_error ? ` · ${s.last_error}` : ""}
+                        </span>
+                      )}
                     </div>
                     <div className="muted small">{s.url}</div>
                   </div>

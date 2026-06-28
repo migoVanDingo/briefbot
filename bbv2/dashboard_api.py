@@ -6,29 +6,28 @@ injectable so the routes are testable offline.
 
 from __future__ import annotations
 
-import json
 import os
-from datetime import datetime, timezone
 from typing import Any, Callable
 
 from fastapi import APIRouter, Body, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
 
 from . import config, rbac, usage
-from .api import _bearer, _item_dict
+from .api import _bearer
 from .authjwt import decode_access_token
+from .dashboard_briefs import add_brief_routes
 from .dashboard_chat import add_chat_routes
 from .dashboard_favorites import add_favorite_routes
 from .dashboard_metrics import add_metrics_routes
 from .dashboard_prefs import add_prefs_routes
+from .dashboard_profile import add_profile_routes
 from .dashboard_schedule import add_schedule_routes
-from .moderation import ModerationError, moderate_topic, sanitize_name
-from .ratelimit import limiter
+from .moderation import ModerationError, moderate_topic
+from .ratelimit import limiter, rate_limit_error
 from .store import Store
 from .util import titlecase
 
 Verifier = Callable[[str], dict[str, Any]]
-MAX_LIMIT = 200
 
 
 def _opt_int(v: Any) -> int | None:
@@ -39,26 +38,6 @@ def _opt_int(v: Any) -> int | None:
         return int(v)
     except (TypeError, ValueError):
         return None
-
-
-def _topic_image_status(topic_row: Any) -> str:
-    return (topic_row["image_status"] if "image_status" in topic_row.keys() else "none") or "none"
-
-
-def _serialize_brief(topic_row: Any, brief_row: Any) -> dict[str, Any]:
-    status = _topic_image_status(topic_row)
-    return {
-        "topic_slug": topic_row["slug"],
-        "topic_name": topic_row["name"],
-        "date": brief_row["date"],
-        "title": brief_row["title"],
-        "summary": brief_row["summary"],
-        # Per-topic Grok Imagine header image (0024).
-        "image_status": status,
-        "image_url": f"/api/topics/{topic_row['slug']}/image" if status == "ready" else None,
-        "trending": json.loads(brief_row["trending_json"] or "[]"),
-        "sources": json.loads(brief_row["sources_json"] or "[]"),
-    }
 
 
 def _make_current_user(store: Store):
@@ -134,11 +113,7 @@ def add_dashboard_routes(
         limit, window = conf
         ok, retry = limiter.check((action, user_id), limit=limit, window_s=window)
         if not ok:
-            raise HTTPException(
-                status_code=429,
-                detail="Too many requests — slow down.",
-                headers={"Retry-After": str(int(retry) + 1)},
-            )
+            raise rate_limit_error(retry)
 
     def _rate_limited(user: dict = Depends(current_user)) -> dict[str, Any]:
         """Router-wide general per-user rate limit (every `/api/*` route).
@@ -392,6 +367,8 @@ def add_dashboard_routes(
                     "status": s["status"],
                     "collect_interval_min": s["collect_interval_min"],
                     "last_collected_at": s["last_collected_at"],
+                    # Why an auto-dropped source was disabled (0029), e.g. "HTTP 404".
+                    "last_error": s["last_error"] if "last_error" in s.keys() else None,
                 }
                 for s in rows
             ]
@@ -416,6 +393,9 @@ def add_dashboard_routes(
     @router.post("/sources/{source_id}/enable")
     def enable_source(source_id: int, user: dict = Depends(require_sources)) -> dict[str, Any]:
         store.set_source_status(source_id, "active")
+        # Give an auto-dropped source a clean slate so one more failure doesn't
+        # instantly re-disable it (the streak was already at the threshold).
+        store.clear_source_failures(source_id)
         return {"ok": True}
 
     @router.delete("/sources/{source_id}")
@@ -431,178 +411,7 @@ def add_dashboard_routes(
         approved = store.approve_all_candidates(slug)
         return {"ok": True, "approved": approved}
 
-    @router.get("/headlines")
-    def headlines(
-        limit: int = 50, user: dict = Depends(current_user)
-    ) -> dict[str, Any]:
-        rows = store.items_for_user(user["id"], limit=max(1, min(limit, MAX_LIMIT)))
-        return {"items": [_item_dict(r) for r in rows]}
-
-    @router.get("/topics/{slug}/items")
-    def topic_items(
-        slug: str,
-        since: str | None = None,
-        limit: int = 50,
-        user: dict = Depends(current_user),
-    ) -> dict[str, Any]:
-        rows = store.items_for_topic(
-            slug, since_iso=since, limit=max(1, min(limit, MAX_LIMIT))
-        )
-        return {"items": [_item_dict(r) for r in rows]}
-
-    @router.get("/stories/sources")
-    def story_sources(user: dict = Depends(current_user)) -> dict[str, Any]:
-        return {"sources": store.story_sources(user["id"])}
-
-    @router.post("/stories")
-    def query_stories(
-        body: dict = Body(default={}), user: dict = Depends(current_user)
-    ) -> dict[str, Any]:
-        limit = int(body.get("limit") or 30)
-        rows = store.query_stories(
-            user["id"],
-            search=sanitize_name(body.get("search") or "") or None,  # strip tags/ctrl
-            source_name=(body.get("source") or "").strip() or None,
-            topic_slug=(body.get("topic") or "").strip() or None,
-            from_iso=(body.get("from") or "").strip() or None,
-            to_iso=(body.get("to") or "").strip() or None,
-            order=body.get("order") or "desc",
-            limit=max(1, min(limit, MAX_LIMIT)),
-        )
-        return {
-            "items": [
-                {
-                    **_item_dict(r),
-                    "feedback_vote": r["feedback_vote"],
-                    "is_saved": bool(r["is_saved"]),
-                }
-                for r in rows
-            ]
-        }
-
-    @router.post("/stories/feedback")
-    def story_feedback(
-        body: dict = Body(...), user: dict = Depends(current_user)
-    ) -> dict[str, Any]:
-        item_id = (body.get("item_id") or "").strip()
-        if not item_id:
-            raise HTTPException(status_code=400, detail="item_id required")
-        vote = int(body.get("vote") or 0)
-        if vote not in (-1, 0, 1):
-            raise HTTPException(status_code=400, detail="vote must be -1, 0, or 1")
-        store.set_story_feedback(user["id"], item_id, vote)
-        return {"ok": True, "item_id": item_id, "vote": vote}
-
-    @router.post("/stories/click", status_code=204)
-    def story_click(body: dict = Body(...), user: dict = Depends(current_user)) -> None:
-        """Best-effort engagement beacon (0021): record that the user opened a
-        story's link. Fire-and-forget from the frontend; never blocks navigation."""
-        item_id = (body.get("item_id") or "").strip()
-        if item_id:
-            store.record_click(user["id"], item_id)
-
-    @router.get("/briefs")
-    def briefs(user: dict = Depends(current_user)) -> dict[str, Any]:
-        """The landing brief: latest brief per subscribed topic, plus the tab list."""
-        from . import topic_image
-
-        subs = store.user_subscriptions(user["id"])
-        out = []
-        for t in subs:
-            b = store.latest_brief(int(t["id"]))
-            if b:
-                topic_image.maybe_kick(store, t, b["summary"])  # one-time, background
-                out.append(_serialize_brief(t, b))
-        return {
-            "briefs": out,
-            "topics": [{"slug": t["slug"], "name": t["name"]} for t in subs],
-        }
-
-    @router.get("/topics/{slug}/briefs")
-    def topic_briefs(
-        slug: str, limit: int = 10, user: dict = Depends(current_user)
-    ) -> dict[str, Any]:
-        """The Headlines date rail: the most recent days that HAVE a brief (newest
-        first, capped at `limit`), plus **today** at the top as the entry point
-        (its brief is null here until the rundown endpoint builds it on demand).
-        Read-only; never triggers an LLM build."""
-        topic = _topic_or_404(slug)
-        limit = max(1, min(limit, 30))
-        today = datetime.now(timezone.utc).date().isoformat()
-        rows = store.recent_briefs(int(topic["id"]), limit)
-        if rows:  # one-time, background image gen seeded from the latest brief
-            from . import topic_image
-
-            topic_image.maybe_kick(store, topic, rows[0]["summary"])
-        by_date = {r["date"]: r for r in rows}
-        dates = [today] if today not in by_date else []
-        dates += [r["date"] for r in rows]
-        dates = dates[:limit]  # newest-first; today is >= every brief date
-        return {
-            "days": [
-                {"date": d, "brief": _serialize_brief(topic, by_date[d]) if d in by_date else None}
-                for d in dates
-            ]
-        }
-
-    @router.get("/topics/{slug}/briefs/{date}/stories")
-    def brief_stories(
-        slug: str, date: str, user: dict = Depends(current_user)
-    ) -> dict[str, Any]:
-        """The stories behind a given day's brief — the exact items the brief was
-        built from (its persisted `sources`), hydrated with the user's vote/save
-        state. Decoupled from the brief's *label* date: a nightly brief is dated for
-        the next day, but its source items were collected earlier, so a date-range
-        query would (correctly) find nothing. Empty list if that day has no brief."""
-        topic = _topic_or_404(slug)
-        brief = store.get_brief(int(topic["id"]), date)
-        if brief is None:
-            return {"items": []}
-        sources = json.loads(brief["sources_json"] or "[]")
-        item_ids = [s["item_id"] for s in sources if s.get("item_id")]
-        rows = store.stories_by_ids(user["id"], item_ids)
-        return {
-            "items": [
-                {**_item_dict(r), "feedback_vote": r["feedback_vote"], "is_saved": bool(r["is_saved"])}
-                for r in rows
-            ]
-        }
-
-    @router.post("/topics/{slug}/brief")
-    def generate_brief(slug: str, user: dict = Depends(require_brief)) -> dict[str, Any]:
-        """Generate (Haiku) + persist a topic's brief now — replaces today's brief.
-        Reflected on Headlines on its next load (no live push). Admin affordance."""
-        from .brief import build_brief
-
-        topic = _topic_or_404(slug)
-        gen = usage.metered_generate(store, usage.SYSTEM_USER_ID, "brief", int(topic["id"]))
-        try:
-            b = build_brief(store, slug, generate=gen)
-        except Exception as exc:  # surface LLM/key errors to the caller
-            raise HTTPException(status_code=400, detail=str(exc))
-        if b is None:
-            raise HTTPException(status_code=400, detail="no recent items to summarize")
-        return {"ok": True, "title": b["title"]}
-
-    @router.post("/topics/{slug}/rundown")
-    def topic_rundown(slug: str, user: dict = Depends(current_user)) -> dict[str, Any]:
-        """On-demand topic rundown — built once per topic/day, then shared. The
-        first visitor that day triggers synthesis; later visitors read the cache.
-        Metered to the system bucket (shared artifact, not the unlucky viewer)."""
-        from .brief import get_or_build_brief
-
-        topic = _topic_or_404(slug)
-        gen = usage.metered_generate(store, usage.SYSTEM_USER_ID, "rundown")
-        try:
-            row = get_or_build_brief(store, slug, generate=gen)
-        except Exception as exc:
-            raise HTTPException(status_code=400, detail=str(exc))
-        if row is None:
-            return {"rundown": None, "reason": "no recent items to summarize"}
-        from . import topic_image
-
-        topic_image.maybe_kick(store, topic, row["summary"])  # one-time, background
-        return {"rundown": _serialize_brief(topic, row)}
+    add_brief_routes(router, store, current_user, require_brief, _topic_or_404)
 
     @router.patch("/topics/{slug}/cadence")
     def set_topic_cadence(
@@ -631,6 +440,7 @@ def add_dashboard_routes(
     add_chat_routes(router, store, current_user, moderate_generate)  # chat/conversations
     add_schedule_routes(router, store, require_cadence)  # 0020 admin scheduling + caps
     add_metrics_routes(router, store, require_metrics)  # 0021 admin metrics
+    add_profile_routes(app, router, store, current_user)  # 0028 profile + avatar
 
     @router.get("/settings")
     def get_settings(user: dict = Depends(current_user)) -> dict[str, Any]:

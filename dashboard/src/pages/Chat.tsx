@@ -56,6 +56,10 @@ export function Chat() {
   const [usage, setUsage] = useState<UsageStats | null>(null);
   const threadEnd = useRef<HTMLDivElement>(null);
   const streamAbort = useRef<AbortController | null>(null);
+  // Latest selected conversation id, readable inside async callbacks without a
+  // stale closure — guards against a slow getConversation landing after a switch.
+  const activeRef = useRef("");
+  activeRef.current = activeId;
   // Provisioning pipelines for this conversation, polled from the server (0023) so
   // they survive refresh/navigation. Rendered inline against their message id.
   const { runs, refresh: refreshRuns } = useProvisioning(activeId || undefined);
@@ -116,7 +120,9 @@ export function Chat() {
     setMessages([]);
     try {
       const c = await api.getConversation(id);
-      setMessages(c.messages);
+      // Guard against a slow load for a conversation the user already switched away
+      // from — only apply if this id is still the active one.
+      if (activeRef.current === id) setMessages(c.messages);
     } catch (e) {
       push(String(e), "error");
     }

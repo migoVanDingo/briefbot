@@ -68,6 +68,28 @@ class UserQueriesMixin:
         )
         self.conn.commit()
 
+    # ---- profile avatar (0028) ----
+    def claim_avatar(self, user_id: int, prompt: str) -> bool:
+        """Atomically move a user's avatar to 'pending' from any state, recording the
+        prompt. Returns False if a generation is already in flight (status 'pending')
+        so a double-submit doesn't fire two (paid) generations."""
+        cur = self.conn.execute(
+            "UPDATE users SET avatar_status = 'pending', avatar_prompt = ? "
+            "WHERE id = ? AND COALESCE(avatar_status, 'none') != 'pending'",
+            (prompt, user_id),
+        )
+        self.conn.commit()
+        return cur.rowcount == 1
+
+    def set_avatar(self, user_id: int, path: str | None, status: str) -> None:
+        """Record the result of an avatar generation (ready/error) or a reset to the
+        default identicon (path=None, status='none')."""
+        self.conn.execute(
+            "UPDATE users SET avatar_path = ?, avatar_status = ? WHERE id = ?",
+            (path, status, user_id),
+        )
+        self.conn.commit()
+
     def touch_last_login(self, user_id: int) -> None:
         self.conn.execute(
             "UPDATE users SET last_login_at = ? WHERE id = ?",

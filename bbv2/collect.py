@@ -19,6 +19,11 @@ from .store import Store
 
 log = logging.getLogger("bbv2.collect")
 
+# Fetch statuses that warrant dropping a source (0029): unauthorized/paywall (401),
+# forbidden/blocked (403), not-found (404), gone (410). NOT 429 (rate-limit — backoff
+# handles it) or 5xx/timeouts (transient).
+DROPPABLE_STATUSES = frozenset({401, 403, 404, 410})
+
 
 def _published_dt(item: dict[str, Any]) -> datetime | None:
     return parse_iso_utc(item.get("published_at") or item.get("fetched_at"))
@@ -96,6 +101,10 @@ def collect_source(
     if eff_cap is None:
         eff_cap = store.source_max_stories(row["id"])
     remaining = eff_cap or config.max_stories_per_source()  # newest-first cap
+    # Track this source's fetch health to auto-drop dead/blocked feeds (0029): any
+    # success clears the streak; only droppable 4xx (auth/paywall/dead) count against it.
+    any_success = False
+    droppable: tuple[int, str] | None = None  # (status_code, message) of the last drop-worthy fail
     for feed_url in feed_urls:
         if remaining <= 0:
             break
@@ -107,7 +116,10 @@ def collect_source(
         except FetchError as exc:
             stats["errors"] += 1
             log.warning("fetch failed: %s", exc)
+            if exc.status_code in DROPPABLE_STATUSES:
+                droppable = (exc.status_code, str(exc))
             continue
+        any_success = True
         if status == "not_modified":
             stats["not_modified"] += 1
             continue
@@ -128,7 +140,44 @@ def collect_source(
             except Exception as exc:  # noqa: BLE001 - best-effort per item
                 stats["errors"] += 1
                 log.warning("item failed (%s): %s", src["name"], exc)
+
+    _update_source_health(store, row, any_success, droppable)
     return touched
+
+
+def _update_source_health(
+    store: Store, row: Any, any_success: bool, droppable: tuple[int, str] | None
+) -> None:
+    """Auto-drop a source after a streak of droppable 4xx failures (0029). A
+    success clears the streak; only auth/paywall/dead responses count; 410 Gone
+    disables immediately. Transient failures (429/5xx/timeout) are ignored here."""
+    sid = int(row["id"])
+    if any_success:
+        store.clear_source_failures(sid)
+        return
+    if droppable is None:
+        return  # only transient failures this pass — leave the streak untouched
+    threshold = config.source_drop_threshold()
+    if threshold <= 0:
+        return  # auto-drop disabled
+    code, msg = droppable
+    reason = f"HTTP {code}"
+    if code == 410:  # Gone — definitive, no need to wait for a streak
+        store.disable_source(sid, reason)
+        log.warning("disabled source '%s' (id=%d): %s (gone)", row["name"], sid, reason)
+        return
+    count = store.bump_source_failure(sid, reason)
+    if count >= threshold:
+        store.disable_source(sid, reason)
+        log.warning(
+            "disabled source '%s' (id=%d) after %d consecutive %s failures",
+            row["name"], sid, count, reason,
+        )
+    else:
+        log.info(
+            "source '%s' (id=%d) failed with %s (%d/%d before disable)",
+            row["name"], sid, reason, count, threshold,
+        )
 
 
 def collect(

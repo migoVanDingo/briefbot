@@ -12,11 +12,14 @@ jitter, honoring a numeric `Retry-After`. Non-retryable responses (4xx other tha
 
 from __future__ import annotations
 
+import logging
 import random
 import time
 from typing import Callable, Iterable
 
 import requests
+
+log = logging.getLogger("bbv2.http")
 
 # 429 = rate-limited; 5xx = server/transient; 529 = Anthropic "overloaded".
 RETRY_STATUSES = frozenset({429, 500, 502, 503, 504, 529})
@@ -59,8 +62,12 @@ def request_with_backoff(
         except requests.RequestException as exc:
             last_exc = exc
             if attempt == max_attempts:
+                log.error("request failed after %d attempts: %s", attempt, exc)
                 raise
-            sleep(_delay(attempt, base_delay, max_delay, None, rand))
+            delay = _delay(attempt, base_delay, max_delay, None, rand)
+            log.warning("request error (attempt %d/%d), retrying in %.1fs: %s",
+                        attempt, max_attempts, delay, exc)
+            sleep(delay)
             continue
         if resp.status_code not in retry or attempt == max_attempts:
             return resp
@@ -68,7 +75,10 @@ def request_with_backoff(
         # (safe_get) this releases the pooled connection instead of leaking it.
         retry_after = resp.headers.get("Retry-After")
         resp.close()
-        sleep(_delay(attempt, base_delay, max_delay, retry_after, rand))
+        delay = _delay(attempt, base_delay, max_delay, retry_after, rand)
+        log.warning("HTTP %d (attempt %d/%d), retrying in %.1fs",
+                    resp.status_code, attempt, max_attempts, delay)
+        sleep(delay)
     if resp is not None:  # pragma: no cover - loop always returns/raises first
         return resp
     raise last_exc or RuntimeError("request_with_backoff made no attempts")

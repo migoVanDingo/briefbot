@@ -92,6 +92,20 @@ class ProvisionRunsMixin:
         self.conn.commit()
         return cur.rowcount
 
+    def reset_orphaned_image_jobs(self) -> int:
+        """On startup: a background image gen left 'pending' lost its worker when the
+        process died, and nothing else clears it (the atomic claim only fires from a
+        non-pending state) — so the topic/avatar would be stuck spinning forever.
+        Reset those back to 'none' so they can be re-kicked. Returns the count."""
+        n = 0
+        for sql in (
+            "UPDATE topics SET image_status = 'none' WHERE image_status = 'pending'",
+            "UPDATE users SET avatar_status = 'none' WHERE avatar_status = 'pending'",
+        ):
+            n += self.conn.execute(sql).rowcount
+        self.conn.commit()
+        return n
+
 
 def _iso_minus(seconds: int) -> str:
     from datetime import datetime, timedelta, timezone

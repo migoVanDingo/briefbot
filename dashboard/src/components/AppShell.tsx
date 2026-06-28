@@ -8,6 +8,7 @@ import StarIcon from "@mui/icons-material/StarBorder";
 import TopicIcon from "@mui/icons-material/TagOutlined";
 import AdminIcon from "@mui/icons-material/AdminPanelSettingsOutlined";
 import SettingsIcon from "@mui/icons-material/SettingsOutlined";
+import PersonIcon from "@mui/icons-material/PersonOutlined";
 import LogoutIcon from "@mui/icons-material/LogoutOutlined";
 import MenuIcon from "@mui/icons-material/Menu";
 import CloseIcon from "@mui/icons-material/Close";
@@ -44,6 +45,7 @@ export function AppShell() {
   // Subscribe to capabilities (not the stable `can` fn) so the admin link appears
   // once the profile loads.
   const caps = useAuth((s) => s.profile?.user.capabilities);
+  const avatarVersion = useAuth((s) => s.avatarVersion);
   const isAdmin = !!caps && (caps.includes("*") || caps.includes("admin:read"));
   const headerRef = useRef<HTMLElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -111,7 +113,18 @@ export function AppShell() {
             <SettingsIcon fontSize="small" className="nav-ico" />
             Settings
           </NavLink>
-          <span className="who">{profile?.user.name}</span>
+          {profile && (
+            <NavLink to="/profile" className={linkClass} title="Your profile">
+              <img
+                className="who-avatar"
+                src={api.avatarUrl(profile.user.id, avatarVersion)}
+                alt=""
+                width={24}
+                height={24}
+              />
+              <span className="who">{profile.user.name}</span>
+            </NavLink>
+          )}
           <ThemeToggle />
           <button className="btn ghost icon-btn-text" onClick={logout}>
             <LogoutIcon fontSize="small" />
@@ -124,6 +137,7 @@ export function AppShell() {
           <ThemeToggle />
           <button
             className="hamburger"
+            data-tour="menu"
             onClick={() => setMenuOpen((o) => !o)}
             aria-label={menuOpen ? "Close menu" : "Open menu"}
             aria-expanded={menuOpen}
@@ -171,6 +185,10 @@ export function AppShell() {
             )}
 
             <div className="menu-section">
+              <NavLink to="/profile" className={menuLinkClass}>
+                <PersonIcon fontSize="small" className="nav-ico" />
+                Profile
+              </NavLink>
               <NavLink to="/settings" className={menuLinkClass}>
                 <SettingsIcon fontSize="small" className="nav-ico" />
                 Settings
