@@ -94,8 +94,10 @@
 }
 .sched-group {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
+  max-width: 100%;
 }
 .sched-label {
   font-size: 12px;
@@ -114,11 +116,19 @@
   border-radius: var(--radius);
   font-size: 13px;
 }
+.sched-row input,
+.sched-row select {
+  min-width: 0; /* allow inputs to shrink instead of overflowing the card */
+  max-width: 100%;
+}
 .sched-row input[type="number"] {
-  width: 84px; /* fit 5-digit values like 10080 (weekly) without clipping */
+  width: 72px;
 }
 .sched-row input[type="time"] {
   width: 110px;
+}
+.sched-row input[type="date"] {
+  width: 150px;
 }
 .sched-row select:focus,
 .sched-row input:focus {
@@ -129,6 +139,25 @@
   display: flex;
   gap: 8px;
   margin-left: auto;
+}
+
+/* Phones: each group + the actions take a full-width row, and the wide
+   date/time fields stretch to fill rather than spill off the card. */
+@media (max-width: 720px) {
+  .sched-group {
+    width: 100%;
+  }
+  .sched-row input[type="date"],
+  .sched-row input[type="time"] {
+    flex: 1 1 auto;
+  }
+  .sched-actions {
+    width: 100%;
+    margin-left: 0;
+  }
+  .sched-actions .btn {
+    flex: 1 1 0;
+  }
 }
 
 /* ---- metrics (0021) ---- */

@@ -233,11 +233,14 @@ export function Headlines() {
                 </p>
               </div>
             ) : (
-              <ul className="story-list">
-                {stories.map((s) => (
-                  <StoryRow key={s.item_id} story={s} />
-                ))}
-              </ul>
+              <>
+                <h2 className="stories-subhead">Recent Stories</h2>
+                <ul className="story-list">
+                  {stories.map((s) => (
+                    <StoryRow key={s.item_id} story={s} />
+                  ))}
+                </ul>
+              </>
             )}
           </div>
         </div>

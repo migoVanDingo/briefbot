@@ -12,6 +12,24 @@
   align-items: center;
   gap: 8px;
 }
+/* Let selects/date fields grow to fill the row but also SHRINK — without
+   min-width:0 a flex item won't go below its content width, so a long option
+   (e.g. "Google Developers Blog") pushes the select off the screen. */
+.filter-controls > select,
+.filter-controls > .filter-date {
+  flex: 1 1 150px;
+  min-width: 0;
+}
+.filter-controls > select {
+  max-width: 100%;
+}
+.filter-date input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.filter-controls .btn {
+  flex: 0 0 auto;
+}
 .filter-search {
   position: relative;
   display: flex;
@@ -39,4 +57,16 @@
 .filter-date input {
   font-size: 13px;
   padding: 7px 9px;
+}
+
+/* On phones the wrap-row gets cramped and misaligned — give every control its
+   own full-width row, and pair the two action buttons on one row. */
+@media (max-width: 560px) {
+  .filter-controls > select,
+  .filter-controls > .filter-date {
+    flex: 1 1 100%;
+  }
+  .filter-controls .btn {
+    flex: 1 1 0;
+  }
 }
