@@ -90,7 +90,12 @@ def collect_source(
 
     touched: set[int] = set()
     max_age = config.collect_max_age_days()
-    remaining = config.max_stories_per_source()  # newest-first cap per source
+    # Per-topic story cap (0020): the scheduler precomputes `eff_max_stories`; the
+    # direct collect() path resolves it per source; fall back to the env default.
+    eff_cap = row["eff_max_stories"] if "eff_max_stories" in row.keys() else None
+    if eff_cap is None:
+        eff_cap = store.source_max_stories(row["id"])
+    remaining = eff_cap or config.max_stories_per_source()  # newest-first cap
     for feed_url in feed_urls:
         if remaining <= 0:
             break

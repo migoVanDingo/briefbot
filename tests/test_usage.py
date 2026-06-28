@@ -137,3 +137,27 @@ def test_create_topic_blocked_over_limit(monkeypatch):
     r = c.post("/api/topics", json={"slug": "crypto", "name": "Crypto"}, headers=AUTH)
     assert r.status_code == 429
     assert "limit" in r.json()["detail"].lower()
+
+
+def test_estimate_cost_by_model():
+    from bbv2 import usage
+    # grok priced lower than haiku; output dearer than input
+    g = usage.estimate_cost("grok-3-mini", 1_000_000, 1_000_000)
+    h = usage.estimate_cost("claude-haiku-4-5", 1_000_000, 1_000_000)
+    assert g < h
+    assert usage.estimate_cost("grok-3-mini", 0, 0) == 0.0
+
+
+def test_usage_summary_attributes_by_topic():
+    store = Store(":memory:", check_same_thread=False)
+    tid = store.add_topic("crypto", "Crypto")
+    store.record_usage(0, "relevance", "grok-3-mini", 1000, 200, topic_id=tid)
+    store.record_usage(0, "rundown", "claude-haiku-4-5", 500, 800, topic_id=None)
+    s = store.usage_summary("2000-01-01T00:00:00+00:00")
+    assert s["overall"]["input"] == 1500 and s["overall"]["output"] == 1000
+    assert s["overall"]["cost"] > 0
+    by_topic = {t["name"]: t for t in s["by_topic"]}
+    assert "Crypto" in by_topic and by_topic["Crypto"]["input"] == 1000
+    assert "(background)" in by_topic  # NULL topic spend bucketed separately
+    models = {m["model"] for m in s["by_model"]}
+    assert "grok-3-mini" in models and "claude-haiku-4-5" in models

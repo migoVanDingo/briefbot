@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import AddIcon from "@mui/icons-material/Add";
 import { api, type Topic } from "../../api";
+import { AdminNav } from "../../components/AdminNav";
 import { useToasts } from "../../state/toasts";
 
 export function Topics() {
@@ -60,6 +61,7 @@ export function Topics() {
   return (
     <div className="page">
       <h1 className="page-title">Topics (admin)</h1>
+      <AdminNav />
 
       <form onSubmit={create} className="row-form card">
         <input

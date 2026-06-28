@@ -101,8 +101,8 @@ def test_run_chat_turn_runs_a_tool():
     assert store.get_messages(cid)[-1]["content"] == "Found it."
 
 
-def test_create_topic_tool_streams_stages_and_subscribes(monkeypatch):
-    import bbv2.provision as provision
+def test_create_topic_spawns_background_run_and_subscribes(monkeypatch):
+    import bbv2.provision_runner as runner
 
     store = Store(":memory:")
     uid = store.add_user("Me", "me@example.com")
@@ -113,7 +113,10 @@ def test_create_topic_tool_streams_stages_and_subscribes(monkeypatch):
         yield {"type": "stage", "stage": "collecting"}
         yield {"type": "stage", "stage": "ready", "sources": 3, "items": 12, "dropped": 1}
 
-    monkeypatch.setattr(provision, "provision_topic", fake_provision)
+    # run_provision binds provision_topic at import, so patch it on the runner;
+    # run the "background" pool synchronously for the test.
+    monkeypatch.setattr(runner, "provision_topic", fake_provision)
+    monkeypatch.setattr(runner, "submit", lambda *a, **k: runner.run_provision(*a, **k))
 
     calls = {"n": 0}
 
@@ -145,13 +148,20 @@ def test_create_topic_tool_streams_stages_and_subscribes(monkeypatch):
         )
     )
 
-    stages = [e["stage"] for e in events if e["type"] == "topic_stage"]
-    assert stages == ["discovering", "collecting", "ready"]
-    end = next(e for e in events if e["type"] == "tool_end" and e["name"] == "create_topic")
-    assert "3 sources" in end["summary"]
-    # Topic created and the user auto-subscribed.
+    # The assistant message id is announced up front (linkage for re-hydration).
+    msg_ev = next(e for e in events if e["type"] == "message")
+    assert msg_ev["id"].startswith("MSG")
+    # A topic_run event seeds the live pill (no more per-stage streaming).
+    run_ev = next(e for e in events if e["type"] == "topic_run")
+    assert run_ev["slug"] == "crypto" and run_ev["name"] == "Crypto"
+    # Topic created + user subscribed immediately.
     assert store.get_topic("crypto") is not None
     assert "crypto" in [t["slug"] for t in store.user_subscriptions(uid)]
+    # The background run completed (synchronous here) and links to the message.
+    runs = store.runs_for_conversation(uid, cid)
+    assert len(runs) == 1
+    assert runs[0]["status"] == "done" and runs[0]["stage"] == "ready"
+    assert runs[0]["message_id"] == msg_ev["id"]
 
 
 def test_first_message_seeds_greeting_in_context():
@@ -217,38 +227,38 @@ def test_subscribe_topic_tool():
     assert "error" in missing
 
 
-def test_create_topic_events_carry_name(monkeypatch):
-    """topic_stage events label each pipeline so the chat can show one run per
-    topic (sports → crypto → world news)."""
-    import bbv2.provision as provision
+def test_create_topic_run_carries_name_and_links_message(monkeypatch):
+    """The topic_run event labels the pipeline (so chat shows one run per topic)
+    and the run row links to the conversation + message for re-hydration."""
+    import bbv2.provision_runner as runner
     from bbv2.agent import _create_topic_events
 
     store = Store(":memory:")
     uid = store.add_user("Me", "me@example.com")
-
-    def fake_provision(store, slug, **kwargs):
-        yield {"type": "stage", "stage": "discovering"}
-        yield {"type": "stage", "stage": "ready", "sources": 1, "items": 1, "dropped": 0}
-
-    monkeypatch.setattr(provision, "provision_topic", fake_provision)
+    monkeypatch.setattr(runner, "submit", lambda *a, **k: None)  # don't run the pipeline
     allow = lambda *a, **k: '{"allowed": true, "category": "ok", "reason": "ok"}'
 
     events = []
     gen = _create_topic_events(
-        store, uid, {"name": "World News"}, moderate_generate=allow, review_generate=None
+        store, uid, {"name": "World News"},
+        conversation_id="CON1", message_id="MSG1",
+        moderate_generate=allow, review_generate=None,
     )
     try:
         while True:
             events.append(next(gen))
     except StopIteration:
         pass
-    stages = [e for e in events if e["type"] == "topic_stage"]
-    assert stages
-    assert all(e["name"] == "World News" and e["slug"] == "world-news" for e in stages)
+    runs = [e for e in events if e["type"] == "topic_run"]
+    assert len(runs) == 1
+    assert runs[0]["name"] == "World News" and runs[0]["slug"] == "world-news"
+    # a run row was created, linked to the message
+    rows = store.runs_for_conversation(uid, "CON1")
+    assert rows[0]["message_id"] == "MSG1" and rows[0]["topic_slug"] == "world-news"
 
 
 def test_brief_on_provision_only_during_setup_window(monkeypatch):
-    import bbv2.provision as provision
+    import bbv2.provision_runner as runner
     from bbv2.agent import _create_topic_events
 
     store = Store(":memory:")
@@ -256,15 +266,19 @@ def test_brief_on_provision_only_during_setup_window(monkeypatch):
     captured = []
     results = []
 
-    def fake_provision(store, slug, **kwargs):
-        captured.append(kwargs.get("brief_generate"))
-        yield {"type": "stage", "stage": "ready", "sources": 1, "items": 1, "dropped": 0}
+    # Capture the brief_generate handed to the background run for each topic.
+    def fake_submit(store, run_id, slug, *, query_generate=None, review_generate=None, brief_generate=None):
+        captured.append(brief_generate)
 
-    monkeypatch.setattr(provision, "provision_topic", fake_provision)
+    monkeypatch.setattr(runner, "submit", fake_submit)
     allow = lambda *a, **k: '{"allowed": true, "category": "ok", "reason": "ok"}'
 
     def run(name):
-        gen = _create_topic_events(store, uid, {"name": name}, moderate_generate=allow, review_generate=None)
+        gen = _create_topic_events(
+            store, uid, {"name": name},
+            conversation_id="C", message_id="M",
+            moderate_generate=allow, review_generate=None,
+        )
         try:
             while True:
                 next(gen)

@@ -57,3 +57,14 @@
     opacity: 0.5;
   }
 }
+
+/* Provisioning cards on the Topics page (0023) — one per active/recent run. */
+.provision-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.provision-card {
+  padding: 14px 16px;
+}

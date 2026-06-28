@@ -46,13 +46,13 @@ def test_health_is_open():
 
 def test_missing_or_invalid_token_is_401():
     client, _ = _client()
-    assert client.get("/topics").status_code == 401
-    assert client.get("/topics", headers={"Authorization": "Bearer nope"}).status_code == 401
+    assert client.get("/consumer/topics").status_code == 401
+    assert client.get("/consumer/topics", headers={"Authorization": "Bearer nope"}).status_code == 401
 
 
 def test_topics_are_scoped_to_token():
     client, token = _client()
-    r = client.get("/topics", headers={"Authorization": f"Bearer {token}"})
+    r = client.get("/consumer/topics", headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 200
     slugs = [t["slug"] for t in r.json()["topics"]]
     assert slugs == ["crypto"]  # not 'politics'
@@ -62,11 +62,11 @@ def test_items_in_scope_and_out_of_scope():
     client, token = _client()
     h = {"Authorization": f"Bearer {token}"}
 
-    ok = client.get("/items", params={"topic": "crypto"}, headers=h)
+    ok = client.get("/consumer/items", params={"topic": "crypto"}, headers=h)
     assert ok.status_code == 200
     assert ok.json()["count"] == 2
 
-    denied = client.get("/items", params={"topic": "politics"}, headers=h)
+    denied = client.get("/consumer/items", params={"topic": "politics"}, headers=h)
     assert denied.status_code == 403
 
 
@@ -74,7 +74,7 @@ def test_since_filters_and_orders_ascending():
     client, token = _client()
     h = {"Authorization": f"Bearer {token}"}
     r = client.get(
-        "/items",
+        "/consumer/items",
         params={"topic": "crypto", "since": "2025-01-01T00:00:00+00:00"},
         headers=h,
     )

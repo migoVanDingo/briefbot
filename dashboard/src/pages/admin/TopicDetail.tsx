@@ -5,18 +5,12 @@ import DownloadIcon from "@mui/icons-material/CloudDownloadOutlined";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import CheckIcon from "@mui/icons-material/Check";
 import CloseIcon from "@mui/icons-material/Close";
+import DeleteIcon from "@mui/icons-material/DeleteOutlined";
 import { api, type Source, type Item } from "../../api";
 import { useToasts } from "../../state/toasts";
 import { timeAgo } from "../../lib/format";
 import { LoadingBanner } from "../../components/LoadingBanner";
 import { DISCOVER_PHRASES, COLLECT_PHRASES } from "../../lib/phrases";
-
-const PRESETS = [
-  { label: "Hourly", min: 60 },
-  { label: "Daily", min: 1440 },
-  { label: "Weekly", min: 10080 },
-  { label: "Monthly", min: 43200 },
-];
 
 export function TopicDetail() {
   const { slug = "" } = useParams();
@@ -28,39 +22,23 @@ export function TopicDetail() {
   const [discovering, setDiscovering] = useState(false);
   const [collecting, setCollecting] = useState(false);
   const [briefing, setBriefing] = useState(false);
-  const [discoverMin, setDiscoverMin] = useState("");
-  const [collectMin, setCollectMin] = useState("");
+  // Click a source card to filter Recent items to that source.
+  const [selected, setSelected] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const [a, c, it, topics] = await Promise.all([
-        api.sources(slug, "active"),
+      const [a, c, it] = await Promise.all([
+        api.sources(slug, "managed"), // active + disabled (paused)
         api.sources(slug, "candidate"),
         api.topicItems(slug, 30),
-        api.topics(),
       ]);
       setActive(a);
       setCandidates(c);
       setItems(it);
-      const t = topics.find((x) => x.slug === slug);
-      setDiscoverMin(t?.discover_interval_min ? String(t.discover_interval_min) : "");
-      setCollectMin(t?.collect_interval_min ? String(t.collect_interval_min) : "");
     } catch (e) {
       push(String(e), "error");
     }
   }, [slug, push]);
-
-  const saveTopicCadence = async () => {
-    try {
-      await api.setTopicCadence(slug, {
-        discover_interval_min: discoverMin ? Number(discoverMin) : null,
-        collect_interval_min: collectMin ? Number(collectMin) : null,
-      });
-      push("Cadence saved", "success");
-    } catch (e) {
-      push(String(e), "error");
-    }
-  };
 
   const saveSourceCadence = async (id: number, value: string) => {
     try {
@@ -71,9 +49,41 @@ export function TopicDetail() {
     }
   };
 
+  const toggleEnabled = async (s: Source) => {
+    try {
+      if (s.status === "disabled") {
+        await api.enableSource(s.id);
+        push(`Enabled ${s.name}`, "success");
+      } else {
+        await api.disableSource(s.id);
+        push(`Disabled ${s.name}`, "info");
+      }
+      load();
+    } catch (e) {
+      push(String(e), "error");
+    }
+  };
+
+  const removeSource = async (s: Source) => {
+    if (!window.confirm(`Delete source "${s.name}"? Collected stories are kept.`)) return;
+    try {
+      await api.deleteSource(s.id);
+      if (selected === s.id) setSelected(null);
+      push(`Deleted ${s.name}`, "info");
+      load();
+    } catch (e) {
+      push(String(e), "error");
+    }
+  };
+
   useEffect(() => {
     load();
   }, [load]);
+
+  const selectedSource = active.find((s) => s.id === selected) ?? null;
+  const shownItems = selectedSource
+    ? items.filter((it) => it.source_name === selectedSource.name)
+    : items;
 
   const discover = async () => {
     setDiscovering(true);
@@ -92,7 +102,8 @@ export function TopicDetail() {
     setCollecting(true);
     try {
       const stats = await api.collect(slug);
-      push(`Ingested ${stats.new} new item(s)`, "success");
+      const dropped = stats.dropped ? `, dropped ${stats.dropped} off-topic` : "";
+      push(`Ingested ${stats.new} new item(s)${dropped}`, "success");
       setItems(await api.topicItems(slug, 30));
     } catch (e) {
       push(String(e), "error");
@@ -191,64 +202,10 @@ export function TopicDetail() {
       <section className="section">
         <h2 className="section-title">Cadence</h2>
         <p className="muted small">
-          How often the scheduler discovers new sources and collects stories for
-          this topic. Blank = default. Per-source overrides win.
+          This topic's discovery + collection schedule and ingest caps live in{" "}
+          <Link to="/admin/scheduling">Admin → Scheduling</Link>. Per-source
+          collection overrides (below) still win over the topic schedule.
         </p>
-        <div className="cadence-row">
-          <label className="cadence-field">
-            Discover new sources every
-            <span className="cadence-input">
-              <input
-                type="number"
-                min={0}
-                value={discoverMin}
-                onChange={(e) => setDiscoverMin(e.target.value)}
-                placeholder="default"
-              />
-              min
-            </span>
-            <span className="cadence-presets">
-              {PRESETS.map((p) => (
-                <button
-                  key={p.min}
-                  type="button"
-                  className="chip-btn"
-                  onClick={() => setDiscoverMin(String(p.min))}
-                >
-                  {p.label}
-                </button>
-              ))}
-            </span>
-          </label>
-          <label className="cadence-field">
-            Collect stories every
-            <span className="cadence-input">
-              <input
-                type="number"
-                min={0}
-                value={collectMin}
-                onChange={(e) => setCollectMin(e.target.value)}
-                placeholder="default"
-              />
-              min
-            </span>
-            <span className="cadence-presets">
-              {PRESETS.map((p) => (
-                <button
-                  key={p.min}
-                  type="button"
-                  className="chip-btn"
-                  onClick={() => setCollectMin(String(p.min))}
-                >
-                  {p.label}
-                </button>
-              ))}
-            </span>
-          </label>
-          <button className="btn primary" onClick={saveTopicCadence}>
-            Save cadence
-          </button>
-        </div>
       </section>
 
       {candidates.length > 0 && (
@@ -291,41 +248,79 @@ export function TopicDetail() {
       )}
 
       <section className="section">
-        <h2 className="section-title">Active sources ({active.length})</h2>
+        <h2 className="section-title">Sources ({active.length})</h2>
         {active.length === 0 ? (
           <p className="muted">
             None yet. Click <b>Discover sources</b>, approve a few, then{" "}
             <b>Collect now</b>.
           </p>
         ) : (
-          <ul className="list">
-            {active.map((s) => (
-              <li key={s.id} className="list-row">
-                <div className="src-info">
-                  <div className="list-title">{s.name}</div>
-                  <div className="muted small">{s.url}</div>
-                </div>
-                <label className="cadence-input src-cadence" title="Collect every (min); blank = topic default">
-                  every
-                  <input
-                    type="number"
-                    min={0}
-                    defaultValue={s.collect_interval_min ?? ""}
-                    placeholder="default"
-                    onBlur={(e) => saveSourceCadence(s.id, e.target.value)}
-                  />
-                  min
-                </label>
-              </li>
-            ))}
-          </ul>
+          <>
+            <p className="muted small">Click a source to filter the items below.</p>
+            <ul className="list">
+              {active.map((s) => (
+                <li
+                  key={s.id}
+                  className={`list-row src-card${selected === s.id ? " selected" : ""}${s.status === "disabled" ? " disabled" : ""}`}
+                  onClick={() => setSelected(selected === s.id ? null : s.id)}
+                >
+                  <div className="src-info">
+                    <div className="list-title">
+                      {s.name}
+                      {s.status === "disabled" && <span className="chip danger">disabled</span>}
+                    </div>
+                    <div className="muted small">{s.url}</div>
+                  </div>
+                  <label
+                    className="cadence-input src-cadence"
+                    title="Collect every (min); blank = topic default"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    every
+                    <input
+                      type="number"
+                      min={0}
+                      defaultValue={s.collect_interval_min ?? ""}
+                      placeholder="default"
+                      onBlur={(e) => saveSourceCadence(s.id, e.target.value)}
+                    />
+                    min
+                  </label>
+                  <div className="src-actions" onClick={(e) => e.stopPropagation()}>
+                    <button className="btn ghost" onClick={() => toggleEnabled(s)}>
+                      {s.status === "disabled" ? "Enable" : "Disable"}
+                    </button>
+                    <button
+                      className="btn ghost icon-btn-text danger"
+                      onClick={() => removeSource(s)}
+                      title="Delete source"
+                    >
+                      <DeleteIcon fontSize="small" />
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </>
         )}
       </section>
 
       <section className="section">
-        <h2 className="section-title">Recent items ({items.length})</h2>
+        <div className="section-head">
+          <h2 className="section-title">
+            Recent items ({shownItems.length})
+            {selectedSource && (
+              <span className="muted small"> · {selectedSource.name}</span>
+            )}
+          </h2>
+          {selectedSource && (
+            <button className="btn ghost" onClick={() => setSelected(null)}>
+              Show all
+            </button>
+          )}
+        </div>
         <ul className="feed">
-          {items.map((it) => (
+          {shownItems.map((it) => (
             <li key={it.item_id} className="feed-item">
               <a href={it.url ?? "#"} target="_blank" rel="noreferrer" className="feed-title">
                 {it.title}
@@ -336,7 +331,11 @@ export function TopicDetail() {
               </div>
             </li>
           ))}
-          {items.length === 0 && <li className="muted">No items yet.</li>}
+          {shownItems.length === 0 && (
+            <li className="muted">
+              {selectedSource ? "No recent items from this source." : "No items yet."}
+            </li>
+          )}
         </ul>
       </section>
     </div>

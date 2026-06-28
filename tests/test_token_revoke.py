@@ -28,9 +28,9 @@ def test_revoked_token_rejected_by_consumer_api():
     client = TestClient(create_app(store))
     auth = {"Authorization": f"Bearer {token}"}
 
-    assert client.get("/topics", headers=auth).status_code == 200
+    assert client.get("/consumer/topics", headers=auth).status_code == 200
     store.revoke_token(token)  # by full token value
-    assert client.get("/topics", headers=auth).status_code == 401
+    assert client.get("/consumer/topics", headers=auth).status_code == 401
 
 
 def test_revoke_unknown_returns_zero():

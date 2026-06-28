@@ -8,10 +8,12 @@ import {
   api,
   type ChatMessage,
   type ConversationMeta,
+  type ProvisionRun,
   type UsageStats,
 } from "../api";
 import { useToasts } from "../state/toasts";
 import { useAuth } from "../state/auth";
+import { useProvisioning } from "../lib/useProvisioning";
 import { ProvisionPipeline } from "../components/ProvisionPipeline";
 import { LoadingBanner } from "../components/LoadingBanner";
 import { Markdown } from "../components/Markdown";
@@ -20,16 +22,14 @@ import { DISCOVER_PHRASES, COLLECT_PHRASES } from "../lib/phrases";
 // The witty cycling phrases shown while a topic provisions in-chat (the best part).
 const PROVISION_PHRASES = [...DISCOVER_PHRASES, ...COLLECT_PHRASES];
 
-// Show the "view headlines" link once provisioning is done: live (all pipelines
-// settled, ≥1 ready) or on a reloaded message (a create_topic tool call succeeded).
-function provisioningDone(m: ChatMessage): boolean {
+// Show the "view headlines" link once provisioning is done: a run finished (0023)
+// or — for old conversations whose runs have aged out — a create_topic tool ran.
+function provisioningDone(m: ChatMessage, msgRuns: ProvisionRun[]): boolean {
   const live =
-    !!m.topics?.length &&
-    m.topics.every((t) => t.stage === "ready" || t.failed) &&
-    m.topics.some((t) => t.stage === "ready");
-  const persisted = !!m.tool_calls?.some(
-    (t) => t.name === "create_topic" && /created/i.test(t.summary || ""),
-  );
+    msgRuns.length > 0 &&
+    msgRuns.every((r) => r.status !== "running") &&
+    msgRuns.some((r) => r.status === "done");
+  const persisted = !!m.tool_calls?.some((t) => t.name === "create_topic");
   return live || persisted;
 }
 
@@ -56,6 +56,9 @@ export function Chat() {
   const [usage, setUsage] = useState<UsageStats | null>(null);
   const threadEnd = useRef<HTMLDivElement>(null);
   const streamAbort = useRef<AbortController | null>(null);
+  // Provisioning pipelines for this conversation, polled from the server (0023) so
+  // they survive refresh/navigation. Rendered inline against their message id.
+  const { runs, refresh: refreshRuns } = useProvisioning(activeId || undefined);
 
   // Abort an in-flight chat stream if the user navigates away mid-turn, so the
   // reader stops and we don't setState on an unmounted component.
@@ -189,21 +192,14 @@ export function Chat() {
             }
             return { ...m, tool_calls: tc };
           });
-        } else if (type === "topic_stage") {
-          patchLast((m) => {
-            const slug = ev.slug as string;
-            const entry = {
-              slug,
-              name: (ev.name as string) ?? slug,
-              stage: (ev.stage as string) ?? null,
-              failed: Boolean(ev.failed),
-            };
-            const prev = m.topics ?? [];
-            const topics = prev.some((t) => t.slug === slug)
-              ? prev.map((t) => (t.slug === slug ? { ...t, ...entry } : t))
-              : [...prev, entry];
-            return { ...m, topics };
-          });
+        } else if (type === "message") {
+          // The server pre-minted this assistant message's id; tag the live bubble
+          // so polled runs (below) attach to it (and re-hydrate on reload).
+          patchLast((m) => ({ ...m, id: ev.id as string }));
+        } else if (type === "topic_run") {
+          // A background provision run started — fetch it now so the pill appears
+          // immediately, then the hook keeps polling it forward.
+          refreshRuns();
         } else if (type === "title") {
           setConvos((cs) =>
             cs.map((c) => (c.id === cid ? { ...c, title: ev.title as string } : c)),
@@ -220,6 +216,7 @@ export function Chat() {
         setSending(false);
         loadConvos();
         loadUsage();
+        refreshRuns(); // keep polling any pipeline this turn kicked off
       }
     }
   };
@@ -305,8 +302,10 @@ export function Chat() {
                 </div>
               )
             ) : (
-              messages.map((m, i) => (
-                <div key={i} className={`msg-row ${m.role}`}>
+              messages.map((m, i) => {
+                const msgRuns = m.id ? runs.filter((r) => r.message_id === m.id) : [];
+                return (
+                <div key={m.id ?? i} className={`msg-row ${m.role}`}>
                   <span className="msg-avatar" aria-hidden="true">
                     {m.role === "user" ? (
                       <PersonIcon fontSize="small" />
@@ -324,26 +323,20 @@ export function Chat() {
                         ))}
                       </div>
                     )}
-                    {m.topics && m.topics.length > 0 && (
+                    {msgRuns.length > 0 && (
                       <div className="topic-runs">
-                        {m.topics.map((tp) => {
-                          const inProgress =
-                            !tp.failed && tp.stage !== "ready";
-                          return (
-                            <div key={tp.slug} className="topic-run">
-                              <div className="topic-run-label">
-                                {tp.name ?? tp.slug}
-                              </div>
-                              <ProvisionPipeline
-                                stage={tp.stage}
-                                failed={tp.failed}
-                              />
-                              {inProgress && (
-                                <LoadingBanner phrases={PROVISION_PHRASES} />
-                              )}
-                            </div>
-                          );
-                        })}
+                        {msgRuns.map((r) => (
+                          <div key={r.id} className="topic-run">
+                            <div className="topic-run-label">{r.name}</div>
+                            <ProvisionPipeline stage={r.stage} failed={r.failed} />
+                            {r.status === "running" && (
+                              <LoadingBanner phrases={PROVISION_PHRASES} />
+                            )}
+                            {r.failed && r.error && (
+                              <div className="muted small">{r.error}</div>
+                            )}
+                          </div>
+                        ))}
                       </div>
                     )}
                     <div className="msg-body">
@@ -353,22 +346,21 @@ export function Chat() {
                         ) : (
                           m.content
                         )
-                      ) : m.role === "assistant" &&
-                        sending &&
-                        !(m.topics && m.topics.length) ? (
+                      ) : m.role === "assistant" && sending && !msgRuns.length ? (
                         "…"
                       ) : (
                         ""
                       )}
                     </div>
-                    {m.role === "assistant" && provisioningDone(m) && (
+                    {m.role === "assistant" && provisioningDone(m, msgRuns) && (
                       <Link to="/headlines" className="headlines-link">
                         View your headlines →
                       </Link>
                     )}
                   </div>
                 </div>
-              ))
+                );
+              })
             )}
             <div ref={threadEnd} />
           </div>

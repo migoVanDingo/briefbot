@@ -86,13 +86,25 @@ ULID PK isn't content-derived; `store.upsert_item` returns the canonical id.
   Haiku, which decides which are genuinely on-topic; writes `item_topics.relevant`
   (1/0). Display queries hide `relevant = 0`. Drops the off-topic stories that
   aggregator sources carry. Run as a provision stage and via `bbv2 quickscan`.
-- **Discover** (`discovery.py`): topic → Brave queries → site homepages
-  (skipping `denylist` domains) → `discover_site_feeds` → candidate sources, capped
-  at `MAX_SOURCES_PER_TOPIC` (default 5).
-- **Provision** (`provision.py`, user flow): a generator streaming SSE stages
+- **Discover** (`discovery.py`): topic → **LLM-crafted, entity/angle-specific Brave
+  queries** (`craft_queries`, e.g. Firearms → "Glock new models", "gun law changes",
+  "NRA news"; heuristic `build_queries` fallback) → site homepages (skipping
+  `denylist` domains) → `discover_site_feeds` (junk feeds — Wikipedia featured/
+  comments — filtered by `is_junk_feed_url`) → candidate sources, capped at
+  `MAX_SOURCES_PER_TOPIC`. **Retries up to 3×** with fresh angles until it finds
+  ≥2 feeds; if it still finds none, provisioning surfaces a "couldn't find good
+  sources" error instead of an empty "ready" topic.
+- **Provision** (`provision.py`, user flow): a generator yielding stages
   `discovering → approving → collecting → reviewing → [summarizing] → ready`
   (discover → `approve_all_candidates` → collect → relevance quickscan → optional
-  first brief). The caller passes `brief_generate` **only within the user's initial
+  first brief). **Durable (0023):** it runs as a **background job** (`provision_runner`,
+  bounded pool) that writes each stage to a `provision_runs` row, so the pipeline
+  finishes even if the client leaves and any surface can observe it by polling
+  `GET /api/provisioning`. Chat (`POST …/provision` returns a `run_id`; chat
+  `create_topic` links a run to the assistant message id) and the Topics page both
+  render `ProvisionPipeline` from the polled run state — so it survives refresh /
+  navigation. Orphaned `running` rows are marked `interrupted` on serve startup.
+  The caller passes `brief_generate` **only within the user's initial
   setup window** (`store.is_recent_user`, account-age based — reload-proof, default
   24h via `ONBOARD_BRIEF_WINDOW_MIN`) — so every topic added while setting up
   populates the initial Headlines, while later topic-adds defer to nightly +
@@ -178,13 +190,30 @@ ULID PK isn't content-derived; `store.upsert_item` returns the canonical id.
   **global** for now — per-space scoping of topics/headlines is a later plan.
 - **Per-user scoping:** stories/headlines are scoped to subscriptions; favorites
   and conversations are per user.
-- **Consumer API:** opaque service tokens (`bbv2 token create`) scoped to topic
-  slugs; read-only; rate-limited per token (`/health` exempt). Revocable via
-  `bbv2 token revoke <label|token>` (sets `revoked_at`; revoked tokens fail auth).
+- **Consumer API (0022):** opaque service tokens (`bbv2 token create`) scoped to
+  topic slugs; read-only; rate-limited per token. Data routes under **`/consumer`**
+  (`/consumer/topics`, `/consumer/items`) so they don't collide with the SPA; root
+  `/health` exempt. Revocable via `bbv2 token revoke <label|token>`.
+- **Admin scheduling (0020):** per-topic discovery schedule — "run every
+  {day|week|month|year} starting <date> at <time>" (the weekday / day-of-month is
+  derived from the start date; `_discover_due` in `scheduler.py`) — plus ingest caps
+  (`max_sources`, `max_stories_per_source`, NULL→env default), edited in **Admin →
+  Scheduling** (`cadence:set`). Collection is an interval (shown as hrs:min).
+  `bbv2 tick` (every 15 min) honors it.
+- **Admin metrics (0021):** `token_usage.topic_id` attributes Grok relevance spend
+  per topic; **Admin → Metrics** (`metrics:read`) shows estimated LLM cost
+  (`config.llm_prices()`, a ballpark — no billing API) by topic/model/day + per-user
+  engagement (tokens, topics, clicks via a `story_clicks` beacon, votes, saves).
 - **CORS + bind are env-driven** for the Tailscale family deploy: `ALLOWED_ORIGINS`
   (explicit allowlist, never `*` with credentials) and `BBV2_SERVE_HOST`. Logs from
   the unattended `tick`/`nightly` cron go to `BBV2_LOG_DIR` via the `logging` module
   (configured in `cli.main`).
+- **Topic header images (0024):** a per-topic image (Grok Imagine, `llm.grok_image`)
+  generated **once** in the background (`topic_image.maybe_kick` → bounded pool) the
+  first time a topic has a brief — seeded from the brief summary, stored under
+  `data/topic_images/`, status on `topics.image_path`/`image_status`. Served public
+  via `GET /api/topics/{slug}/image`; shown as the Headlines brief banner (shimmer
+  while pending). Best-effort — moderation/errors just yield no image.
 
 ## Frontend
 

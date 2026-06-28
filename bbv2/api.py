@@ -2,13 +2,17 @@
 
 Thin layer: validate the bearer token (→ allowed topic slugs), call store
 queries, serialize. No business logic beyond scope enforcement.
+
+Data routes live under the **`/consumer`** prefix (0022) so they don't collide
+with the dashboard SPA routes when nginx serves the SPA at `/`. `GET /health`
+stays at root — the deploy health check curls it directly.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query
+from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Query
 
 from . import config
 from .ratelimit import limiter
@@ -64,7 +68,11 @@ def create_app(store: Store) -> FastAPI:
     def health() -> dict[str, str]:
         return {"status": "ok"}
 
-    @app.get("/topics")
+    # Data routes under /consumer so nginx can proxy just `location /consumer/`
+    # without colliding with the SPA (0022). Auth/scoping/rate-limit unchanged.
+    consumer = APIRouter(prefix="/consumer")
+
+    @consumer.get("/topics")
     def topics(scope: list[str] = Depends(require_scope)) -> dict[str, Any]:
         allowed = set(scope)
         items = [
@@ -74,7 +82,7 @@ def create_app(store: Store) -> FastAPI:
         ]
         return {"topics": items}
 
-    @app.get("/items")
+    @consumer.get("/items")
     def items(
         topic: str = Query(...),
         since: str | None = Query(default=None),
@@ -90,4 +98,5 @@ def create_app(store: Store) -> FastAPI:
         next_since = rows[-1]["fetched_at"] if rows else since
         return {"items": results, "count": len(results), "next_since": next_since}
 
+    app.include_router(consumer)
     return app

@@ -1,9 +1,10 @@
 # bbv2 — Roadmap & backlog
 
-Phased build is tracked in [`../_plans/`](../_plans/) (shipped through `0019` —
-`0018` moved theme/tour state into the DB, `0019` added backend sessions +
-capability RBAC + a user-spaces foundation). This file holds what's **left** —
-backlog and known rough edges.
+Phased build is tracked in [`../_plans/`](../_plans/) (shipped through `0023` —
+`0018` theme/tour state in DB, `0019` sessions + RBAC + spaces, `0020` per-topic
+scheduling + caps, `0021` admin metrics, `0022` consumer API under `/consumer`,
+`0023` durable provisioning pipelines). This file holds what's **left** — backlog
+and known rough edges.
 
 ## Next (each its own plan)
 
@@ -13,18 +14,20 @@ backlog and known rough edges.
 - **User spaces (build on the 0019 foundation):** per-space scoping of topics/
   headlines, a spaces UI, and invites/membership (`spaces` + `space_membership` +
   capability scoping already in place; existing features are still global).
-- **Logo** to replace the `◆` brand-mark.
-- **Article images** on cards — extract `media:content`/`enclosure` when present,
-  optional `og:image` scrape fallback (v1 never captured these).
+- ~~**Logo**~~ — done. ~~**Topic header images**~~ — done (0024: per-topic Grok
+  Imagine image on the Headlines brief).
+- **Per-article images** on story cards — extract `media:content`/`enclosure` when
+  present, optional `og:image` scrape fallback (separate from the topic image).
 - **Persistent clusters** (the 0014 companion) — promote `cluster.py` results into
   tables; unlocks the **Stories cluster/tag filters** deferred in 0008 Phase 3, and
   better brief/rundown story selection + "what a user cares about" / trending. Plus
   per-article deep summaries (v1's stage-1 fetch+cache). *(Brief cron cadence is now
   done — `bbv2 nightly`; `tick` handles pull cadence.)*
 - **HN / arXiv fetchers** — normalizers already exist; wire the source types.
-- **Query-angle expansion** (0009 deferred) — Haiku turns an allowed topic into
-  better, safe search angles (e.g. `hacking` → reverse engineering / vuln
-  research) to seed discovery.
+- ~~**Query-angle expansion**~~ — **done**: `discovery.craft_queries` (LLM) turns a
+  topic into entity/angle-specific search queries (e.g. Firearms → "Glock new
+  models", "gun law changes", "NRA news") + retries up to 3× with fresh angles,
+  giving up with a clear message; junk feeds (Wikipedia featured/comments) filtered.
 
 ## Ideas to explore (kick around tomorrow)
 

@@ -16,12 +16,18 @@ import json
 from datetime import datetime, timezone
 from typing import Any, Callable, Iterator
 
-from . import config
+from . import config, ids
 from .agent_tools import TOOL_SCHEMAS
 from .cluster import cluster_items
 from .llm import LLMError, anthropic_messages, generate_text
 from .store import Store
-from .usage import SYSTEM_USER_ID, budget_status, meter_usage, metered_generate
+from .usage import (
+    SYSTEM_USER_ID,
+    budget_status,
+    meter_usage,
+    metered_generate,
+    metered_relevance_generate,
+)
 
 MAX_ITERATIONS = 8
 MAX_RESULT_CHARS = 8000
@@ -103,6 +109,14 @@ def _context_block(store: Store, user_id: int) -> str:
     lines.append(
         f"Token budget today: {used:,} / {limit:,} used (~{remaining:,} left)."
     )
+    # Active provisioning runs (0023) so the agent can answer "how's my setup going?".
+    active = [r for r in store.runs_for_user(user_id) if r["status"] == "running"]
+    if active:
+        lines.append(
+            "Setups in progress (provisioning, updating live on the page): "
+            + ", ".join(f"{r['topic_name']} ({r['stage']})" for r in active)
+            + "."
+        )
     return "\n".join(lines)
 
 
@@ -322,16 +336,19 @@ def _create_topic_events(
     user_id: int,
     args: dict[str, Any],
     *,
+    conversation_id: str,
+    message_id: str,
     moderate_generate: Callable[..., str] | None,
     review_generate: Callable[..., str] | None,
 ) -> Iterator[dict[str, Any]]:
-    """Create + provision a topic, streaming `topic_stage` events into the chat.
+    """Create a topic and kick off its provisioning as a **background run** (0023).
 
-    Yields a `tool_start`, then a `topic_stage` per provisioning step, then a
-    `tool_end`; returns `(result, summary)` for the model's tool_result. The
-    hard token budget gates this (provisioning is the expensive path)."""
+    Yields `tool_start`, a `topic_run` (so the pill appears in the live message),
+    then `tool_end`; returns `(result, summary)` for the model's tool_result. The
+    pipeline advances in the background and is observed by polling — so it survives
+    the user navigating away. The hard token budget gates this."""
+    from . import provision_runner
     from .moderation import ModerationError, moderate_topic
-    from .provision import provision_topic
 
     name = (args.get("name") or "").strip()
     if not name:
@@ -353,57 +370,49 @@ def _create_topic_events(
     except ModerationError as exc:
         return {"error": f"topic rejected: {exc.reason}"}, "rejected"
     slug, display = clean["slug"], clean["name"]
+    existed = store.get_topic(slug) is not None
     store.add_topic(slug, display, (args.get("description") or "").strip())
+    topic = store.get_topic(slug)
+    # Subscribe now — the user asked for it; provisioning fills in the stories.
+    store.subscribe(user_id, int(topic["id"]))
 
-    yield {"type": "tool_start", "name": "create_topic"}
-    last_stage: str | None = None
-    sources = items = dropped = 0
     # Build a brief during provisioning while the user is still in their initial
     # setup window (account age — reload-proof), so every topic they add then
-    # populates the first Headlines. After it, new topics defer to the nightly job
-    # + on-demand rundown (no per-add LLM cost). System bucket (shared artifact).
+    # populates the first Headlines. System bucket (shared artifact).
     building_brief = store.is_recent_user(
         user_id, config.onboard_brief_window_min() * 60
     )
     brief_generate = (
-        metered_generate(store, SYSTEM_USER_ID, "rundown") if building_brief else None
+        metered_generate(store, SYSTEM_USER_ID, "rundown", topic_id=int(topic["id"]))
+        if building_brief
+        else None
     )
-    for ev in provision_topic(
-        store, slug, review_generate=review_generate, brief_generate=brief_generate
-    ):
-        if ev.get("type") == "stage":
-            last_stage = str(ev.get("stage"))
-            yield {"type": "topic_stage", "slug": slug, "name": display, "stage": last_stage}
-            if ev.get("stage") == "ready":
-                sources = int(ev.get("sources") or 0)
-                items = int(ev.get("items") or 0)
-                dropped = int(ev.get("dropped") or 0)
-        elif ev.get("type") == "error":
-            yield {
-                "type": "topic_stage",
-                "slug": slug,
-                "name": display,
-                "stage": last_stage,
-                "failed": True,
-            }
-            yield {"type": "tool_end", "name": "create_topic", "summary": "provisioning failed"}
-            return {"error": ev.get("message"), "slug": slug}, "provisioning failed"
 
-    store.subscribe(user_id, int(store.get_topic(slug)["id"]))
-    summary = f"created '{display}' — {sources} sources, {items} stories"
+    run_id = store.create_run(
+        user_id, slug, display, surface="chat",
+        conversation_id=conversation_id, message_id=message_id,
+    )
+    # Query crafting is a cheap system call → Grok (Haiku fallback), not Haiku.
+    query_generate = metered_relevance_generate(store, user_id, "discovery", int(topic["id"]))
+    provision_runner.submit(
+        store, run_id, slug, query_generate=query_generate,
+        review_generate=review_generate, brief_generate=brief_generate,
+    )
+
+    yield {"type": "tool_start", "name": "create_topic"}
+    yield {"type": "topic_run", "slug": slug, "name": display, "run_id": run_id, "stage": "discovering"}
+    summary = f"setting up '{display}'…"
     yield {"type": "tool_end", "name": "create_topic", "summary": summary}
     return (
         {
-            "created": True,
+            "created": not existed,
+            "existed": existed,
             "slug": slug,
             "name": display,
             "subscribed": True,
-            "sources": sources,
-            "stories": items,
-            "dropped": dropped,
-            # True → the topic's Headlines summary was built now (initial setup).
-            # False → it'll appear in the next overnight brief; its rundown updates
-            # when the user opens the topic.
+            "status": "provisioning",
+            # The pipeline is running in the background; the model should tell the
+            # user we're setting it up now (not report final counts).
             "headline_ready": building_brief,
         },
         summary,
@@ -458,6 +467,11 @@ def run_chat_turn(
     messages = _history(store, conversation_id)
     system = _system_prompt() + _context_block(store, user_id)
 
+    # Pre-mint the assistant message id so provision runs (create_topic) can link to
+    # it and re-hydrate inline on reload (0023). Announced to the client up front.
+    assistant_message_id = ids.new_id(ids.MESSAGE)
+    yield {"type": "message", "id": assistant_message_id}
+
     assistant_text = ""
     tool_log: list[dict[str, Any]] = []
 
@@ -487,11 +501,13 @@ def run_chat_turn(
             name = b.get("name") or ""
             args = b.get("input") or {}
             if name == "create_topic":
-                # Streams its own tool_start/topic_stage/tool_end events.
+                # Spawns a background provision run + emits tool_start/topic_run/tool_end.
                 result, summary = yield from _create_topic_events(
                     store,
                     user_id,
                     args,
+                    conversation_id=conversation_id,
+                    message_id=assistant_message_id,
                     moderate_generate=moderate_generate,
                     review_generate=review_generate,
                 )
@@ -510,7 +526,10 @@ def run_chat_turn(
         yield {"type": "token", "text": note}
 
     final = (assistant_text or "_(No response.)_").strip()
-    store.append_message(conversation_id, user_id, "assistant", final, tool_calls=tool_log or None)
+    store.append_message(
+        conversation_id, user_id, "assistant", final,
+        tool_calls=tool_log or None, message_id=assistant_message_id,
+    )
     store.touch_conversation(conversation_id)
     store.record_usage(user_id, "chat-turn", None, 0, 0, interaction=1)
 

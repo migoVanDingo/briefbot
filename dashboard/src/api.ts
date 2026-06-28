@@ -1,6 +1,8 @@
 import { auth } from "./firebase";
 
 const BASE = import.meta.env.VITE_API_BASE || "http://localhost:8080";
+// Exposed so <img> tags can build absolute URLs for the public image route (0024).
+export const API_BASE = BASE;
 
 // Prefer FastAPI's `{detail: ...}` for a clean toast (e.g. a moderation reason).
 async function errMessage(res: Response): Promise<string> {
@@ -159,6 +161,9 @@ export interface Brief {
   date: string;
   title: string;
   summary: string;
+  // Per-topic Grok Imagine header image (0024).
+  image_status: "none" | "pending" | "ready" | "error";
+  image_url: string | null;
   trending: Trending[];
   sources: BriefSource[];
 }
@@ -208,6 +213,20 @@ export interface TopicProgress {
   failed?: boolean;
 }
 
+// A durable provisioning run (0023) — polled from /api/provisioning.
+export interface ProvisionRun {
+  id: string;
+  slug: string;
+  name: string;
+  stage: string | null;
+  status: "running" | "done" | "error";
+  failed: boolean;
+  error: string | null;
+  surface: "chat" | "topics";
+  conversation_id: string | null;
+  message_id: string | null;
+}
+
 export interface ChatMessage {
   id?: string;
   role: "user" | "assistant";
@@ -243,6 +262,74 @@ export interface Source {
   last_collected_at?: string | null;
 }
 
+// Admin scheduling (0020) — "run every <period> starting <date> at <time>".
+export type DiscoverPeriod = "day" | "week" | "month" | "year";
+export interface TopicSchedule {
+  slug: string;
+  name: string;
+  discover: {
+    period: DiscoverPeriod | null; // null → using the default cadence
+    start_date: string | null; // YYYY-MM-DD
+    at_min: number | null; // minutes into day (UTC)
+  };
+  collect: { interval_min: number | null };
+  caps: { max_sources: number | null; max_stories_per_source: number | null };
+  last_discovered_at: string | null;
+}
+export interface ScheduleDefaults {
+  discover_interval_min: number;
+  collect_interval_min: number;
+  max_sources: number;
+  max_stories_per_source: number;
+  window_min: number;
+}
+// -1 (or "") clears a field back to its default; omit a field to leave unchanged.
+export interface SchedulePatch {
+  discover_period?: DiscoverPeriod | "";
+  discover_start_date?: string; // YYYY-MM-DD or "" to clear
+  discover_at_min?: number;
+  collect_interval_min?: number;
+  max_sources?: number;
+  max_stories_per_source?: number;
+}
+
+// Admin metrics (0021)
+export interface UsageBucket {
+  input: number;
+  output: number;
+  cost: number;
+  calls: number;
+}
+export interface LlmMetrics {
+  range: string;
+  since: string;
+  overall: UsageBucket;
+  by_model: (UsageBucket & { model: string })[];
+  by_purpose: (UsageBucket & { purpose: string })[];
+  by_topic: (UsageBucket & { name: string; slug: string | null })[];
+  by_day: (UsageBucket & { date: string })[];
+  trend: { prev_cost: number; delta_pct: number | null };
+  prices: Record<string, { in: number; out: number }>;
+}
+export interface UserMetricRow {
+  id: number;
+  name: string;
+  email: string;
+  role: string;
+  status: string;
+  last_login_at: string | null;
+  tokens: number;
+  topics: number;
+  clicks: number;
+  votes: number;
+  saves: number;
+  chats: number;
+}
+export interface UserMetrics {
+  users: UserMetricRow[];
+  totals: { user_count: number; avg_topics: number; active_users: number };
+}
+
 export interface DiscoverStats {
   queries: number;
   results: number;
@@ -259,6 +346,8 @@ export interface CollectStats {
   new: number;
   not_modified: number;
   errors: number;
+  reviewed?: number; // items the relevance review scanned (0024 fix)
+  dropped?: number; // off-topic items the review filtered out
 }
 
 export const api = {
@@ -309,17 +398,33 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify({ collect_interval_min }),
     }),
+  // Admin scheduling + caps (0020)
+  adminSchedule: () =>
+    req<{ defaults: ScheduleDefaults; topics: TopicSchedule[] }>("/api/admin/schedule"),
+  setTopicSchedule: (slug: string, body: SchedulePatch) =>
+    req(`/api/topics/${slug}/schedule`, { method: "PATCH", body: JSON.stringify(body) }),
+  resetTopicSchedule: (slug: string) =>
+    req(`/api/topics/${slug}/schedule/reset`, { method: "POST" }),
+  resetAllSchedules: () =>
+    req<{ reset: number }>("/api/admin/schedule/reset", { method: "POST" }),
+  // Admin metrics (0021)
+  adminLlmMetrics: (range = "30d") =>
+    req<LlmMetrics>(`/api/admin/metrics/llm?range=${encodeURIComponent(range)}`),
+  adminUserMetrics: () => req<UserMetrics>("/api/admin/metrics/users"),
   topics: () => req<{ topics: Topic[] }>("/api/topics").then((d) => d.topics),
   createTopic: (body: { slug: string; name?: string; description?: string }) =>
     req<{ ok: boolean; slug: string; existed: boolean }>("/api/topics", {
       method: "POST",
       body: JSON.stringify(body),
     }),
-  provisionTopic: (
-    slug: string,
-    onEvent: (ev: Record<string, unknown>) => void,
-    signal?: AbortSignal,
-  ) => streamSSE(`/api/topics/${slug}/provision`, {}, onEvent, signal),
+  // Start a background provision run (0023) → returns its id; poll `provisioning`.
+  provisionTopic: (slug: string) =>
+    req<{ run_id: string }>(`/api/topics/${slug}/provision`, { method: "POST" }),
+  // The caller's active + just-finished runs (optionally filtered to a conversation).
+  provisioning: (conversation?: string) =>
+    req<{ runs: ProvisionRun[] }>(
+      `/api/provisioning${conversation ? `?conversation=${encodeURIComponent(conversation)}` : ""}`,
+    ).then((d) => d.runs),
   subscribe: (slug: string) =>
     req(`/api/topics/${slug}/subscribe`, { method: "POST" }),
   unsubscribe: (slug: string) =>
@@ -337,7 +442,7 @@ export const api = {
     req<DiscoverStats>(`/api/topics/${slug}/discover`, { method: "POST" }),
   collect: (slug: string) =>
     req<CollectStats>(`/api/topics/${slug}/collect`, { method: "POST" }),
-  sources: (slug: string, status: "active" | "candidate") =>
+  sources: (slug: string, status: "active" | "candidate" | "managed") =>
     req<{ sources: Source[] }>(
       `/api/topics/${slug}/sources?status=${status}`,
     ).then((d) => d.sources),
@@ -349,6 +454,9 @@ export const api = {
       { method: "POST" },
     ),
   reject: (id: number) => req(`/api/sources/${id}/reject`, { method: "POST" }),
+  disableSource: (id: number) => req(`/api/sources/${id}/disable`, { method: "POST" }),
+  enableSource: (id: number) => req(`/api/sources/${id}/enable`, { method: "POST" }),
+  deleteSource: (id: number) => req(`/api/sources/${id}`, { method: "DELETE" }),
   storySources: () =>
     req<{ sources: string[] }>("/api/stories/sources").then((d) => d.sources),
   queryStories: (filters: StoryFilters = {}) =>
@@ -361,6 +469,20 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ item_id, vote }),
     }),
+  // Fire-and-forget click beacon (0021) — never blocks navigation, ignores errors.
+  recordClick: (item_id: string) => {
+    try {
+      fetch(`${BASE}/api/stories/click`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ item_id }),
+        keepalive: true,
+      }).catch(() => {});
+    } catch {
+      /* ignore */
+    }
+  },
   briefs: () => req<{ briefs: Brief[]; topics: TopicTab[] }>("/api/briefs"),
   topicBriefs: (slug: string) =>
     req<{ days: BriefDay[] }>(`/api/topics/${slug}/briefs`).then((d) => d.days),

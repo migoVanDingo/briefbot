@@ -19,4 +19,6 @@ def _hermetic_auth_env():
     os.environ["BBV2_COOKIE_SECURE"] = "false"
     os.environ["BBV2_COOKIE_SAMESITE"] = "lax"
     os.environ.setdefault("BBV2_JWT_SECRET", "test-secret-not-for-prod")
+    # Never fire real Grok image generation from a test (brief endpoints kick it).
+    os.environ["TOPIC_IMAGES_ENABLED"] = "false"
     yield

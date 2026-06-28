@@ -57,13 +57,16 @@ class ChatQueriesMixin:
         role: str,
         content: str,
         tool_calls: list | None = None,
+        message_id: str | None = None,
     ) -> str:
         row = self.conn.execute(
             "SELECT COALESCE(MAX(seq), 0) AS m FROM conversation_messages WHERE conversation_id = ?",
             (conversation_id,),
         ).fetchone()
         seq = int(row["m"]) + 1
-        mid = ids.new_id(ids.MESSAGE)
+        # The caller may pre-mint the id (0023: so provision runs can link to this
+        # assistant message before it's persisted at the end of the turn).
+        mid = message_id or ids.new_id(ids.MESSAGE)
         self.conn.execute(
             """INSERT INTO conversation_messages
                (id, conversation_id, user_id, seq, role, content, tool_calls_json, created_at)

@@ -18,3 +18,36 @@
 .brief-section {
   margin-top: 22px;
 }
+
+/* ---- topic header image (0024) ---- */
+.brief-image {
+  display: block;
+  width: 100%;
+  height: 180px;
+  object-fit: cover;
+  border-radius: var(--radius);
+  margin-bottom: 14px;
+  background: var(--surface2);
+}
+.brief-image.loading {
+  position: relative;
+  overflow: hidden;
+}
+.brief-image.loading::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--text) 8%, transparent),
+    transparent
+  );
+  transform: translateX(-100%);
+  animation: brief-shimmer 1.3s infinite;
+}
+@keyframes brief-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}

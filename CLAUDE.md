@@ -70,7 +70,7 @@ python -m bbv2 token create --label trader --topics crypto,markets,geopolitics
 python -m bbv2 token list
 python -m bbv2 token revoke <label|token>   # kill a leaked token (0016)
 python -m bbv2 serve --host 127.0.0.1 --port 8080   # --host defaults to BBV2_SERVE_HOST
-#   consumer API (service token): GET /health /topics /items
+#   consumer API (service token): GET /health · /consumer/topics · /consumer/items
 #   dashboard API (Firebase ID token, 0007): /api/me /api/topics /api/headlines …
 #   needs FIREBASE_CONFIG = path to the Admin *service-account* JSON
 
@@ -112,7 +112,7 @@ bbv2/
   store.py       bbv2 SQLite schema + queries (own DB): topics/sources/items,
                  tokens/candidates, users/subscriptions/settings
   collect.py     pipeline wiring
-  api.py         FastAPI consumer API (service-token read: /health /topics /items)
+  api.py         FastAPI consumer API (service-token read: /health · /consumer/*)
   auth.py        Firebase ID-token verification (dashboard)
   dashboard_api.py  /api/* routes (Firebase auth) — me/topics/sources/headlines/settings
   notify.py      Notifier protocol + LogNotifier + MailgunNotifier
@@ -163,8 +163,11 @@ dashboard :5180).
 
 ## WHERE WE ARE — current state
 
-**Shipped & deployed** through `0019` (`0018` DB-persisted UI state · `0019` auth
-sessions + RBAC + spaces foundation). Working end-to-end:
+**Shipped & deployed** through `0023` (`0018` DB-persisted UI state · `0019` auth
+sessions + RBAC + spaces · `0020` per-topic scheduling + caps (Admin → Scheduling)
+· `0021` admin metrics (LLM cost + user engagement) · `0022` consumer API under
+`/consumer` · `0023` durable provisioning pipelines — background `provision_runs`
++ poll, survive navigation, shown in chat + Topics). Working end-to-end:
 
 - **Routes:** `/headlines` (per-topic tabs; a left **date rail** of the last 10
   days *with briefs* → that day's AI brief + that day's stories), `/chat` (Haiku
@@ -197,11 +200,13 @@ sessions + RBAC + spaces foundation). Working end-to-end:
 ## Backlog / next (each its own plan — see `_documentation/roadmap.md`)
 
 - Settings accent **color picker** (`accent` column + `/api/preferences` exist —
-  frontend-only now); **logo** + **article images** on cards.
+  frontend-only now); **logo** done; **topic header images** done (0024, Grok
+  Imagine); per-**article** images on cards still TODO.
 - **User spaces** — scope topics/headlines per space + spaces UI + invites (the
   `0019` `spaces`/`space_membership` + capability scoping are the foundation).
 - **Persistent clusters** → Stories cluster/tag filters + better brief selection.
-- **Trader↔bbv2 integration:** the read-only **consumer API** (`/topics` `/items`)
-  is built but **not yet proxied by nginx** (its root paths collide with SPA routes)
-  — expose it on its own path/port when the `trader` data-platform work resumes
-  (`../trader/_plans/0017`, currently parked).
+- **Collect time-of-day** — `0020` gave discovery daily/weekly scheduling; collection
+  is still interval-only (covers the freshness use case). Extend if needed.
+- **Trader↔bbv2 integration:** the consumer API is now under `/consumer` (`0022`); add
+  the nginx `location /consumer/` block on the VM (see `devops.md`) + hand `trader` a
+  scoped token to consume `crypto` (kept fresh by `0020`).

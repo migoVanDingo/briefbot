@@ -49,3 +49,223 @@
 .src-cadence input {
   width: 72px;
 }
+
+/* ---- admin sub-nav (tabs) + scheduling (0020) ---- */
+.admin-nav {
+  display: flex;
+  gap: 4px;
+  margin: 0 0 18px;
+  border-bottom: 1px solid var(--border);
+}
+.admin-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  text-decoration: none;
+  color: var(--dim);
+  font-weight: 600;
+  font-size: 14px;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+.admin-tab.active {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+.sched-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 12px;
+}
+.sched-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px 20px;
+  padding: 14px 16px;
+  margin-bottom: 10px;
+}
+.sched-name {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 130px;
+}
+.sched-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.sched-label {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--dim);
+  margin-right: 2px;
+}
+.sched-row select,
+.sched-row input {
+  padding: 6px 8px;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 13px;
+}
+.sched-row input[type="number"] {
+  width: 84px; /* fit 5-digit values like 10080 (weekly) without clipping */
+}
+.sched-row input[type="time"] {
+  width: 110px;
+}
+.sched-row select:focus,
+.sched-row input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.sched-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+/* ---- metrics (0021) ---- */
+.section-title {
+  font-size: 16px;
+  font-weight: 700;
+  margin: 6px 0 12px;
+}
+.metrics-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.range-pick {
+  display: flex;
+  gap: 4px;
+}
+.chip-btn {
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--dim);
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.chip-btn.active {
+  border-color: var(--accent);
+  color: var(--text);
+}
+.metric-cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 12px 0;
+}
+.metric-card {
+  flex: 1;
+  min-width: 150px;
+  padding: 14px 16px;
+}
+.metric-label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--dim);
+}
+.metric-big {
+  font-size: 26px;
+  font-weight: 800;
+  margin: 4px 0 2px;
+}
+.trend {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.trend.up {
+  color: var(--neg);
+}
+.trend.down {
+  color: var(--pos);
+}
+.metric-tables {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.metric-table {
+  flex: 1;
+  min-width: 280px;
+  padding: 14px 16px;
+  overflow-x: auto;
+}
+.metric-table.wide {
+  flex-basis: 100%;
+}
+.metric-table h3 {
+  margin: 0 0 10px;
+  font-size: 14px;
+}
+.metric-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.metric-table th {
+  text-align: left;
+  color: var(--dim);
+  font-weight: 600;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.metric-table td {
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.chip.danger {
+  margin-left: 6px;
+  background: color-mix(in srgb, var(--neg) 18%, transparent);
+  color: var(--neg);
+  font-size: 11px;
+}
+
+/* compact hrs:min / caps inputs + date picker (0020 scheduling rework) */
+.sched-row input.hm {
+  width: 52px;
+}
+.sched-row input[type="date"] {
+  width: 150px;
+}
+
+/* selectable source cards on the topic-detail page */
+.src-card {
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
+}
+.src-card:hover {
+  border-color: var(--accent);
+}
+.src-card.selected {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.src-card.disabled .src-info {
+  opacity: 0.55;
+}
+.src-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.btn.ghost.danger,
+.src-actions .danger {
+  color: var(--neg);
+}

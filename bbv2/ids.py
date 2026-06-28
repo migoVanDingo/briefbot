@@ -34,6 +34,7 @@ USER = "USR"
 BRIEF = "BRF"
 SESSION = "SES"
 SPACE = "SPC"
+PROVISION = "PRV"
 
 
 def _encode(value: int, length: int) -> str:

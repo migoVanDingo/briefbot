@@ -24,6 +24,7 @@ _GLOBAL_ROLE_CAPS: dict[str, set[str]] = {
         "cadence:set",
         "token:manage",
         "user:read",
+        "metrics:read",
         "admin:read",
     },
     "user": {"topics:create", "topics:subscribe", "chat:use"},

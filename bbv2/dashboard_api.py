@@ -7,18 +7,21 @@ injectable so the routes are testable offline.
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime, timezone
 from typing import Any, Callable
 
 from fastapi import APIRouter, Body, Depends, FastAPI, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse
 
 from . import config, rbac, usage
 from .api import _bearer, _item_dict
 from .authjwt import decode_access_token
 from .dashboard_chat import add_chat_routes
 from .dashboard_favorites import add_favorite_routes
+from .dashboard_metrics import add_metrics_routes
 from .dashboard_prefs import add_prefs_routes
+from .dashboard_schedule import add_schedule_routes
 from .moderation import ModerationError, moderate_topic, sanitize_name
 from .ratelimit import limiter
 from .store import Store
@@ -38,13 +41,21 @@ def _opt_int(v: Any) -> int | None:
         return None
 
 
+def _topic_image_status(topic_row: Any) -> str:
+    return (topic_row["image_status"] if "image_status" in topic_row.keys() else "none") or "none"
+
+
 def _serialize_brief(topic_row: Any, brief_row: Any) -> dict[str, Any]:
+    status = _topic_image_status(topic_row)
     return {
         "topic_slug": topic_row["slug"],
         "topic_name": topic_row["name"],
         "date": brief_row["date"],
         "title": brief_row["title"],
         "summary": brief_row["summary"],
+        # Per-topic Grok Imagine header image (0024).
+        "image_status": status,
+        "image_url": f"/api/topics/{topic_row['slug']}/image" if status == "ready" else None,
         "trending": json.loads(brief_row["trending_json"] or "[]"),
         "sources": json.loads(brief_row["sources_json"] or "[]"),
     }
@@ -117,6 +128,7 @@ def add_dashboard_routes(
     require_sources = require_capability("sources:approve")
     require_brief = require_capability("brief:generate")
     require_cadence = require_capability("cadence:set")
+    require_metrics = require_capability("metrics:read")
 
     def _enforce_rate(action: str, user_id: int, conf: tuple[int, float]) -> None:
         limit, window = conf
@@ -266,31 +278,59 @@ def add_dashboard_routes(
         store.add_topic(slug, name, body.get("description") or "")
         return {"ok": True, "slug": slug, "name": name, "existed": existed}
 
+    def _run_dict(r: Any) -> dict[str, Any]:
+        return {
+            "id": r["id"],
+            "slug": r["topic_slug"],
+            "name": r["topic_name"],
+            "stage": r["stage"],
+            "status": r["status"],
+            "failed": r["status"] == "error",
+            "error": r["error"],
+            "surface": r["surface"],
+            "conversation_id": r["conversation_id"],
+            "message_id": r["message_id"],
+        }
+
     @router.post("/topics/{slug}/provision")
-    def provision(slug: str, user: dict = Depends(current_user)) -> StreamingResponse:
-        """User-driven: discover → auto-approve → collect, streamed as SSE stage
-        events. Rate-limited; runs in the threadpool like /chat."""
-        from .provision import provision_topic
+    def provision(slug: str, user: dict = Depends(current_user)) -> dict[str, Any]:
+        """User-driven: discover → approve → collect → review as a **background run**
+        (0023). Returns the run id immediately; the client polls `/api/provisioning`
+        for live stage progress. Rate-limited + budget-checked."""
+        from . import provision_runner
 
         _enforce_rate("provision", user["id"], config.ratelimit_provision())
         _enforce_budget(user["id"])
-        _topic_or_404(slug)
-        review_generate = usage.metered_relevance_generate(store, user["id"], "provision")
+        topic = _topic_or_404(slug)
+        tid = int(topic["id"])
+        # Query crafting is a cheap system call → Grok (Haiku fallback), not Haiku.
+        query_generate = usage.metered_relevance_generate(store, user["id"], "discovery", tid)
+        review_generate = usage.metered_relevance_generate(store, user["id"], "provision", tid)
         # Build the first brief only during the initial setup window (account age);
         # afterwards nightly + on-demand rundowns cover new topics (no per-add cost).
         brief_generate = (
-            usage.metered_generate(store, usage.SYSTEM_USER_ID, "rundown")
+            usage.metered_generate(store, usage.SYSTEM_USER_ID, "rundown", tid)
             if store.is_recent_user(user["id"], config.onboard_brief_window_min() * 60)
             else None
         )
+        run_id = store.create_run(user["id"], slug, topic["name"], surface="topics")
+        provision_runner.submit(
+            store, run_id, slug, query_generate=query_generate,
+            review_generate=review_generate, brief_generate=brief_generate,
+        )
+        return {"run_id": run_id}
 
-        def gen():
-            for ev in provision_topic(
-                store, slug, review_generate=review_generate, brief_generate=brief_generate
-            ):
-                yield f"data: {json.dumps(ev)}\n\n"
-
-        return StreamingResponse(gen(), media_type="text/event-stream")
+    @router.get("/provisioning")
+    def provisioning(
+        conversation: str | None = None, user: dict = Depends(current_user)
+    ) -> dict[str, Any]:
+        """The caller's in-progress + just-finished provision runs (0023) — the poll
+        source for the chat pills and the Topics-page cards."""
+        if conversation:
+            rows = store.runs_for_conversation(user["id"], conversation)
+        else:
+            rows = store.runs_for_user(user["id"])
+        return {"runs": [_run_dict(r) for r in rows]}
 
     @router.post("/topics/{slug}/subscribe")
     def subscribe(slug: str, user: dict = Depends(current_user)) -> dict[str, Any]:
@@ -307,18 +347,30 @@ def add_dashboard_routes(
         from .brave import DiscoveryError
         from .discovery import discover_sources
 
-        _topic_or_404(slug)
+        topic = _topic_or_404(slug)
+        # Use the LLM (Grok) query crafter + retry, same as the chat/provision path.
+        query_gen = usage.metered_relevance_generate(store, user["id"], "discovery", int(topic["id"]))
         try:
-            return discover_sources(store, slug)
+            return discover_sources(store, slug, generate=query_gen)
         except DiscoveryError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
 
     @router.post("/topics/{slug}/collect")
     def collect_topic(slug: str, user: dict = Depends(require_curate)) -> dict[str, Any]:
         from .collect import collect as run_collect
+        from .review import quickscan_topic
 
-        _topic_or_404(slug)
-        return run_collect(store, slug)
+        topic = _topic_or_404(slug)
+        stats = run_collect(store, slug)
+        # Run the relevance review too (mirrors `tick`/provision) so off-topic items
+        # the feeds carried are filtered out — otherwise unreviewed items show.
+        review_gen = usage.metered_relevance_generate(store, user["id"], "review", int(topic["id"]))
+        try:
+            review = quickscan_topic(store, slug, generate=review_gen)
+            stats = {**stats, "reviewed": review.get("reviewed", 0), "dropped": review.get("dropped", 0)}
+        except Exception:  # best-effort — collection already succeeded
+            pass
+        return stats
 
     @router.get("/topics/{slug}/sources")
     def sources(
@@ -326,6 +378,8 @@ def add_dashboard_routes(
     ) -> dict[str, Any]:
         if status == "candidate":
             rows = store.list_candidates(slug)
+        elif status == "managed":  # approved sources, active + paused (0020 admin)
+            rows = [s for s in store.list_sources(slug) if s["status"] in ("active", "disabled")]
         else:
             rows = [s for s in store.list_sources(slug) if s["status"] == status]
         return {
@@ -351,6 +405,23 @@ def add_dashboard_routes(
     @router.post("/sources/{source_id}/reject")
     def reject(source_id: int, user: dict = Depends(require_sources)) -> dict[str, Any]:
         store.set_source_status(source_id, "rejected")
+        return {"ok": True}
+
+    @router.post("/sources/{source_id}/disable")
+    def disable_source(source_id: int, user: dict = Depends(require_sources)) -> dict[str, Any]:
+        """Pause an active source (excluded from collection until re-enabled)."""
+        store.set_source_status(source_id, "disabled")
+        return {"ok": True}
+
+    @router.post("/sources/{source_id}/enable")
+    def enable_source(source_id: int, user: dict = Depends(require_sources)) -> dict[str, Any]:
+        store.set_source_status(source_id, "active")
+        return {"ok": True}
+
+    @router.delete("/sources/{source_id}")
+    def delete_source(source_id: int, user: dict = Depends(require_sources)) -> dict[str, Any]:
+        """Remove a source entirely (and its topic links). Collected items remain."""
+        store.delete_source(source_id)
         return {"ok": True}
 
     @router.post("/topics/{slug}/sources/approve-all")
@@ -422,14 +493,25 @@ def add_dashboard_routes(
         store.set_story_feedback(user["id"], item_id, vote)
         return {"ok": True, "item_id": item_id, "vote": vote}
 
+    @router.post("/stories/click", status_code=204)
+    def story_click(body: dict = Body(...), user: dict = Depends(current_user)) -> None:
+        """Best-effort engagement beacon (0021): record that the user opened a
+        story's link. Fire-and-forget from the frontend; never blocks navigation."""
+        item_id = (body.get("item_id") or "").strip()
+        if item_id:
+            store.record_click(user["id"], item_id)
+
     @router.get("/briefs")
     def briefs(user: dict = Depends(current_user)) -> dict[str, Any]:
         """The landing brief: latest brief per subscribed topic, plus the tab list."""
+        from . import topic_image
+
         subs = store.user_subscriptions(user["id"])
         out = []
         for t in subs:
             b = store.latest_brief(int(t["id"]))
             if b:
+                topic_image.maybe_kick(store, t, b["summary"])  # one-time, background
                 out.append(_serialize_brief(t, b))
         return {
             "briefs": out,
@@ -448,6 +530,10 @@ def add_dashboard_routes(
         limit = max(1, min(limit, 30))
         today = datetime.now(timezone.utc).date().isoformat()
         rows = store.recent_briefs(int(topic["id"]), limit)
+        if rows:  # one-time, background image gen seeded from the latest brief
+            from . import topic_image
+
+            topic_image.maybe_kick(store, topic, rows[0]["summary"])
         by_date = {r["date"]: r for r in rows}
         dates = [today] if today not in by_date else []
         dates += [r["date"] for r in rows]
@@ -461,12 +547,14 @@ def add_dashboard_routes(
 
     @router.post("/topics/{slug}/brief")
     def generate_brief(slug: str, user: dict = Depends(require_brief)) -> dict[str, Any]:
-        """Generate (Haiku) + persist a topic's brief now. Admin/test affordance."""
+        """Generate (Haiku) + persist a topic's brief now — replaces today's brief.
+        Reflected on Headlines on its next load (no live push). Admin affordance."""
         from .brief import build_brief
 
-        _topic_or_404(slug)
+        topic = _topic_or_404(slug)
+        gen = usage.metered_generate(store, usage.SYSTEM_USER_ID, "brief", int(topic["id"]))
         try:
-            b = build_brief(store, slug)
+            b = build_brief(store, slug, generate=gen)
         except Exception as exc:  # surface LLM/key errors to the caller
             raise HTTPException(status_code=400, detail=str(exc))
         if b is None:
@@ -488,6 +576,9 @@ def add_dashboard_routes(
             raise HTTPException(status_code=400, detail=str(exc))
         if row is None:
             return {"rundown": None, "reason": "no recent items to summarize"}
+        from . import topic_image
+
+        topic_image.maybe_kick(store, topic, row["summary"])  # one-time, background
         return {"rundown": _serialize_brief(topic, row)}
 
     @router.patch("/topics/{slug}/cadence")
@@ -515,6 +606,8 @@ def add_dashboard_routes(
     add_favorite_routes(router, store, current_user)
     add_prefs_routes(router, store, current_user)  # 0018 theme/flags
     add_chat_routes(router, store, current_user, moderate_generate)  # chat/conversations
+    add_schedule_routes(router, store, require_cadence)  # 0020 admin scheduling + caps
+    add_metrics_routes(router, store, require_metrics)  # 0021 admin metrics
 
     @router.get("/settings")
     def get_settings(user: dict = Depends(current_user)) -> dict[str, Any]:
@@ -534,6 +627,18 @@ def add_dashboard_routes(
             digest_limit=body.get("digest_limit"),
         )
         return {"ok": True}
+
+    # Public (no auth): a topic's generated header image (0024). Mounted on `app`
+    # rather than `router` so an <img> tag can load it cross-origin in dev without
+    # the session cookie. The image is a non-sensitive AI illustration.
+    @app.get("/api/topics/{slug}/image")
+    def topic_image_file(slug: str):
+        row = store.get_topic(slug)
+        path = row["image_path"] if row and "image_path" in row.keys() else None
+        status = row["image_status"] if row and "image_status" in row.keys() else "none"
+        if status != "ready" or not path or not os.path.exists(path):
+            raise HTTPException(status_code=404, detail="no image")
+        return FileResponse(path, media_type="image/jpeg")
 
     app.include_router(router, dependencies=[Depends(_rate_limited)])
 

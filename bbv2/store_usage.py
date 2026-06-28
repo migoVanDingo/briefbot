@@ -26,12 +26,15 @@ class UsageQueriesMixin:
         output_tokens: int,
         *,
         interaction: int = 0,
+        topic_id: int | None = None,
     ) -> None:
-        """Record one LLM call's token spend (and/or a chat-interaction marker)."""
+        """Record one LLM call's token spend (and/or a chat-interaction marker).
+        `topic_id` attributes the call to a topic for the metrics dashboard (0021)."""
         self.conn.execute(
             """INSERT INTO token_usage
-               (user_id, purpose, model, input_tokens, output_tokens, interaction, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+               (user_id, purpose, model, input_tokens, output_tokens, interaction,
+                topic_id, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 user_id,
                 purpose,
@@ -39,6 +42,7 @@ class UsageQueriesMixin:
                 int(input_tokens or 0),
                 int(output_tokens or 0),
                 int(interaction or 0),
+                topic_id,
                 utc_now_iso(),
             ),
         )

@@ -538,3 +538,175 @@ def test_story_is_saved_flag_and_folder_save():
     )
     folder_items = c.get(f"/api/favorites/items?folder_id={fid}", headers=AUTH).json()["items"]
     assert [i["item_id"] for i in folder_items] == ["ITM1"]
+
+
+def test_schedule_admin_endpoints():
+    store = Store(":memory:", check_same_thread=False)
+    c = _client(store)
+    c.get("/api/me", headers=AUTH)
+    store.add_topic("tech", "Tech")
+    store.set_user_role("me@example.com", "admin")  # cadence:set capability
+
+    # GET surfaces defaults + the topic (unconfigured → null period)
+    sched = c.get("/api/admin/schedule", headers=AUTH).json()
+    assert sched["defaults"]["window_min"] == 15
+    assert sched["topics"][0]["discover"]["period"] is None
+
+    # run every week starting 2026-06-22 @ 02:00 + a story cap
+    r = c.patch(
+        "/api/topics/tech/schedule",
+        json={
+            "discover_period": "week",
+            "discover_start_date": "2026-06-22",
+            "discover_at_min": 120,
+            "max_stories_per_source": 20,
+        },
+        headers=AUTH,
+    )
+    assert r.status_code == 200
+    t = c.get("/api/admin/schedule", headers=AUTH).json()["topics"][0]
+    assert t["discover"]["period"] == "week" and t["discover"]["at_min"] == 120
+    assert t["discover"]["start_date"] == "2026-06-22"
+    assert t["caps"]["max_stories_per_source"] == 20
+
+    # validation: bad period / out-of-range minute / bad date
+    assert c.patch("/api/topics/tech/schedule", json={"discover_period": "hourly"}, headers=AUTH).status_code == 422
+    assert c.patch("/api/topics/tech/schedule", json={"discover_at_min": 2000}, headers=AUTH).status_code == 422
+    assert c.patch("/api/topics/tech/schedule", json={"discover_start_date": "nope"}, headers=AUTH).status_code == 422
+
+    # reset → back to defaults
+    c.post("/api/topics/tech/schedule/reset", headers=AUTH)
+    t = c.get("/api/admin/schedule", headers=AUTH).json()["topics"][0]
+    assert t["discover"]["period"] is None and t["caps"]["max_stories_per_source"] is None
+
+
+def test_schedule_admin_requires_capability():
+    store = Store(":memory:", check_same_thread=False)
+    c = _client(store)
+    c.get("/api/me", headers=AUTH)  # plain user
+    assert c.get("/api/admin/schedule", headers=AUTH).status_code == 403
+
+
+def test_story_click_beacon_and_metrics_gating():
+    store = Store(":memory:", check_same_thread=False)
+    c = _client(store)
+    c.get("/api/me", headers=AUTH)
+    uid = store.get_user("me@example.com")["id"]
+
+    # plain user can record a click but can't read metrics
+    assert c.post("/api/stories/click", json={"item_id": "ITM1"}, headers=AUTH).status_code == 204
+    assert c.get("/api/admin/metrics/llm", headers=AUTH).status_code == 403
+    assert c.get("/api/admin/metrics/users", headers=AUTH).status_code == 403
+
+    store.set_user_role("me@example.com", "admin")  # grants metrics:read
+    llm = c.get("/api/admin/metrics/llm?range=7d", headers=AUTH).json()
+    assert llm["range"] == "7d" and "by_topic" in llm and "prices" in llm
+
+    users = c.get("/api/admin/metrics/users", headers=AUTH).json()
+    me = next(u for u in users["users"] if u["id"] == uid)
+    assert me["clicks"] == 1  # the beacon above
+    assert users["totals"]["user_count"] >= 1
+
+
+def test_source_disable_enable_delete_and_managed_list():
+    store = Store(":memory:", check_same_thread=False)
+    c = _client(store)
+    c.get("/api/me", headers=AUTH)
+    store.set_user_role("me@example.com", "admin")  # sources:approve capability
+    tid = store.add_topic("crypto", "Crypto")
+    sid = store.add_source("rss", "https://x/feed", "X")
+    store.link_topic_source(tid, sid)
+    store.set_source_status(sid, "active")
+
+    def managed():
+        return c.get("/api/topics/crypto/sources?status=managed", headers=AUTH).json()["sources"]
+
+    assert [s["status"] for s in managed()] == ["active"]
+
+    # disable → still in the managed list, excluded from collection
+    assert c.post(f"/api/sources/{sid}/disable", headers=AUTH).status_code == 200
+    m = managed()
+    assert m[0]["status"] == "disabled"
+    assert store.active_sources("crypto") == []  # not collected while disabled
+
+    # enable → back to active
+    c.post(f"/api/sources/{sid}/enable", headers=AUTH)
+    assert managed()[0]["status"] == "active"
+    assert len(store.active_sources("crypto")) == 1
+
+    # delete → gone from the list + the source table
+    assert c.delete(f"/api/sources/{sid}", headers=AUTH).status_code == 200
+    assert managed() == []
+    assert store.delete_source(sid) is False  # already gone
+
+
+def test_source_actions_require_capability():
+    store = Store(":memory:", check_same_thread=False)
+    c = _client(store)
+    c.get("/api/me", headers=AUTH)  # plain user
+    assert c.post("/api/sources/1/disable", headers=AUTH).status_code == 403
+    assert c.delete("/api/sources/1", headers=AUTH).status_code == 403
+
+
+def test_provision_creates_background_run(monkeypatch):
+    import bbv2.provision_runner as runner
+    store = Store(":memory:", check_same_thread=False)
+    c = _client(store)
+    c.get("/api/me", headers=AUTH)
+    store.add_topic("crypto", "Crypto")
+    submitted = {}
+    monkeypatch.setattr(
+        runner, "submit",
+        lambda store, run_id, slug, **k: submitted.update(run_id=run_id, slug=slug),
+    )
+
+    r = c.post("/api/topics/crypto/provision", headers=AUTH)
+    assert r.status_code == 200
+    run_id = r.json()["run_id"]
+    assert submitted == {"run_id": run_id, "slug": "crypto"}
+    # observable via the poll endpoint
+    runs = c.get("/api/provisioning", headers=AUTH).json()["runs"]
+    assert [x["id"] for x in runs] == [run_id]
+    assert runs[0]["surface"] == "topics" and runs[0]["status"] == "running"
+
+
+def test_provisioning_conversation_filter():
+    store = Store(":memory:", check_same_thread=False)
+    c = _client(store)
+    uid = c.get("/api/me", headers=AUTH).json()["user"]["id"]
+    r1 = store.create_run(uid, "a", "A", surface="chat", conversation_id="CONx", message_id="M1")
+    r2 = store.create_run(uid, "b", "B", surface="topics")
+    allr = c.get("/api/provisioning", headers=AUTH).json()["runs"]
+    assert {x["id"] for x in allr} == {r1, r2}
+    conv = c.get("/api/provisioning?conversation=CONx", headers=AUTH).json()["runs"]
+    assert [x["id"] for x in conv] == [r1] and conv[0]["message_id"] == "M1"
+
+
+def test_run_provision_lifecycle_and_orphans(monkeypatch):
+    import bbv2.provision_runner as runner
+    store = Store(":memory:")
+    store.add_topic("crypto", "Crypto")
+
+    def ok(store, slug, **k):
+        yield {"type": "stage", "stage": "discovering"}
+        yield {"type": "stage", "stage": "ready", "sources": 1, "items": 1}
+
+    monkeypatch.setattr(runner, "provision_topic", ok)
+    rid = store.create_run(1, "crypto", "Crypto", surface="topics")
+    runner.run_provision(store, rid, "crypto")
+    row = store.get_run(rid)
+    assert row["status"] == "done" and row["stage"] == "ready"
+
+    def boom(store, slug, **k):
+        yield {"type": "error", "message": "discovery failed"}
+
+    monkeypatch.setattr(runner, "provision_topic", boom)
+    rid2 = store.create_run(1, "crypto", "Crypto")
+    runner.run_provision(store, rid2, "crypto")
+    assert store.get_run(rid2)["status"] == "error"
+
+    # a still-'running' row is an orphan after restart → marked interrupted
+    rid3 = store.create_run(1, "crypto", "Crypto")
+    assert store.fail_orphaned_runs() == 1
+    assert store.get_run(rid3)["status"] == "error"
+    assert store.get_run(rid3)["error"] == "interrupted"

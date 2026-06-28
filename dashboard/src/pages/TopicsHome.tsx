@@ -3,6 +3,7 @@ import AddIcon from "@mui/icons-material/Add";
 import TopicIcon from "@mui/icons-material/TagOutlined";
 import { api, type Topic } from "../api";
 import { useToasts } from "../state/toasts";
+import { useProvisioning } from "../lib/useProvisioning";
 import { LoadingBanner } from "../components/LoadingBanner";
 import { ProvisionPipeline } from "../components/ProvisionPipeline";
 import { PageTour } from "../components/PageTour";
@@ -21,20 +22,42 @@ export function TopicsHome() {
   const [topics, setTopics] = useState<Topic[] | null>(null);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [provisioning, setProvisioning] = useState<string | null>(null);
-  const [stage, setStage] = useState<string | null>(null);
-  const [failedStage, setFailedStage] = useState<string | null>(null);
-  const provisionAbort = useRef<AbortController | null>(null);
+  const [creating, setCreating] = useState(false);
+  // Active provisioning pipelines (any surface), polled so they persist + appear
+  // here even if started from chat (0023).
+  const { runs, refresh: refreshRuns } = useProvisioning();
+  // Run ids whose terminal state we've already reacted to (subscribe / toast).
+  const handled = useRef<Set<string>>(new Set());
 
   const load = () =>
     api.topics().then(setTopics).catch((e) => push(String(e), "error"));
 
   useEffect(() => {
     load();
-    // Abort an in-flight provision stream if the user leaves mid-provision.
-    return () => provisionAbort.current?.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // When a topics-initiated run finishes, auto-subscribe + refresh the list.
+  useEffect(() => {
+    for (const r of runs) {
+      if (r.surface !== "topics" || r.status === "running") continue;
+      if (handled.current.has(r.id)) continue;
+      handled.current.add(r.id);
+      if (r.status === "done") {
+        api
+          .subscribe(r.slug)
+          .then(() => push(`"${r.name}" is ready — you're subscribed.`, "success"))
+          .catch(() =>
+            push(`"${r.name}" is ready — subscribe failed; use the button below.`, "info"),
+          )
+          .finally(load);
+      } else {
+        push(`"${r.name}": ${r.error || "setup failed"}`, "error");
+        load();
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runs]);
 
   const toggle = async (t: Topic) => {
     try {
@@ -61,53 +84,23 @@ export function TopicsHome() {
     e.preventDefault();
     const display = name.trim();
     const s = slugify(display);
-    if (!s || provisioning) return;
+    if (!s || creating) return;
+    setCreating(true);
     try {
-      const res = await api.createTopic({
+      await api.createTopic({
         slug: s,
         name: display,
         description: description.trim() || undefined,
       });
       setName("");
       setDescription("");
-      setProvisioning(res.slug);
-      setStage(null);
-      setFailedStage(null);
-      let lastStage: string | null = null;
-      let didFail = false;
-      provisionAbort.current = new AbortController();
-      await api.provisionTopic(res.slug, (ev) => {
-        if (ev.type === "stage") {
-          lastStage = ev.stage as string;
-          setStage(lastStage);
-        } else if (ev.type === "error") {
-          didFail = true;
-          push(String(ev.message), "error");
-        }
-      }, provisionAbort.current.signal);
-      if (didFail) {
-        setFailedStage(lastStage ?? "discovering");
-      } else {
-        // Auto-subscribe to the freshly provisioned topic; user can unsubscribe below.
-        try {
-          await api.subscribe(res.slug);
-          push(`"${res.slug}" is ready — you're subscribed.`, "success");
-        } catch {
-          // The topic provisioned fine; only the subscribe failed — say so plainly.
-          push(`"${res.slug}" is ready — but subscribing failed; try the ☆ below.`, "info");
-        }
-      }
+      await api.provisionTopic(s); // starts the background run
+      refreshRuns(); // show the pipeline card immediately
     } catch (err) {
-      if (provisionAbort.current?.signal.aborted) return; // unmounted — ignore
       // moderation 422 reason, rate-limit 429, etc. surface here
-      setFailedStage((s) => s ?? stage ?? "discovering");
       push(String(err).replace(/^Error:\s*/, ""), "error");
     } finally {
-      if (!provisionAbort.current?.signal.aborted) {
-        setProvisioning(null);
-        setStage(null);
-        load();
-      }
+      setCreating(false);
     }
   };
 
@@ -124,40 +117,37 @@ export function TopicsHome() {
           value={name}
           maxLength={80}
           onChange={(e) => setName(e.target.value)}
-          disabled={!!provisioning}
+          disabled={creating}
         />
         <input
           placeholder="Describe your topic"
           value={description}
           maxLength={200}
           onChange={(e) => setDescription(e.target.value)}
-          disabled={!!provisioning}
+          disabled={creating}
         />
-        <button
-          className="btn primary icon-btn-text"
-          type="submit"
-          disabled={!!provisioning}
-        >
+        <button className="btn primary icon-btn-text" type="submit" disabled={creating}>
           <AddIcon fontSize="small" />
-          {provisioning ? "Setting up…" : "Create topic"}
+          {creating ? "Starting…" : "Create topic"}
         </button>
       </form>
 
-      {provisioning ? (
-        <div className="card">
-          <div className="muted small">
-            Setting up <b>{provisioning}</b> — finding sources and gathering stories…
-          </div>
-          <ProvisionPipeline stage={stage} />
-          <LoadingBanner phrases={DISCOVER_PHRASES} />
+      {/* One card per RUNNING pipeline. Finished ones disappear (a done card here
+          is just wasted space — chat keeps the history since it's conversational). */}
+      {runs.filter((r) => r.status === "running").length > 0 && (
+        <div className="provision-cards">
+          {runs
+            .filter((r) => r.status === "running")
+            .map((r) => (
+              <div key={r.id} className="card provision-card">
+                <div className="muted small">
+                  Setting up <b>{r.name}</b> — finding sources and gathering stories…
+                </div>
+                <ProvisionPipeline stage={r.stage} failed={r.failed} />
+                <LoadingBanner phrases={DISCOVER_PHRASES} />
+              </div>
+            ))}
         </div>
-      ) : (
-        failedStage && (
-          <div className="card">
-            <div className="muted small">Setup failed — see the error above.</div>
-            <ProvisionPipeline stage={failedStage} failed />
-          </div>
-        )
       )}
 
       {topics === null ? (

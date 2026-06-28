@@ -51,9 +51,9 @@ def test_consumer_token_limit_blocks(monkeypatch):
     c = TestClient(create_app(store))
     auth = {"Authorization": f"Bearer {token}"}
 
-    assert c.get("/topics", headers=auth).status_code == 200
-    assert c.get("/topics", headers=auth).status_code == 200
-    assert c.get("/topics", headers=auth).status_code == 429
+    assert c.get("/consumer/topics", headers=auth).status_code == 200
+    assert c.get("/consumer/topics", headers=auth).status_code == 200
+    assert c.get("/consumer/topics", headers=auth).status_code == 429
 
 
 def test_consumer_health_is_exempt(monkeypatch):

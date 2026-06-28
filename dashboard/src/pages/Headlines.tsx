@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import ArticleIcon from "@mui/icons-material/ArticleOutlined";
-import { api, type Brief, type BriefDay, type Story } from "../api";
+import { api, API_BASE, type Brief, type BriefDay, type Story } from "../api";
 import { useToasts } from "../state/toasts";
 import { useHeadlinesNav } from "../state/headlinesNav";
 import { StoryRow } from "../components/StoryRow";
@@ -242,8 +242,51 @@ export function Headlines() {
 }
 
 function BriefCard({ brief }: { brief: Brief }) {
+  // The topic's header image is generated once in the background (0024). While it's
+  // pending, poll the (cached) rundown until it's ready, then swap in the image.
+  const [imgStatus, setImgStatus] = useState(brief.image_status);
+  const [imgUrl, setImgUrl] = useState(brief.image_url);
+
+  useEffect(() => {
+    setImgStatus(brief.image_status);
+    setImgUrl(brief.image_url);
+  }, [brief.image_status, brief.image_url, brief.topic_slug]);
+
+  useEffect(() => {
+    if (imgStatus !== "pending") return;
+    let tries = 0;
+    const id = window.setInterval(async () => {
+      if (++tries > 8) {
+        window.clearInterval(id);
+        return;
+      }
+      try {
+        const d = await api.topicRundown(brief.topic_slug);
+        const b = d.rundown;
+        if (b && b.image_status !== "pending") {
+          setImgStatus(b.image_status);
+          setImgUrl(b.image_url);
+          window.clearInterval(id);
+        }
+      } catch {
+        /* transient — keep polling */
+      }
+    }, 5000);
+    return () => window.clearInterval(id);
+  }, [imgStatus, brief.topic_slug]);
+
   return (
     <section className="brief">
+      {imgStatus === "ready" && imgUrl ? (
+        <img
+          className="brief-image"
+          src={`${API_BASE}${imgUrl}`}
+          alt={`${brief.topic_name} illustration`}
+          loading="lazy"
+        />
+      ) : imgStatus === "pending" ? (
+        <div className="brief-image loading" aria-label="Generating topic image…" />
+      ) : null}
       <div className="brief-head">
         <span className="chip">{brief.topic_name}</span>
         <span className="muted small">{brief.date}</span>

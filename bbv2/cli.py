@@ -180,6 +180,11 @@ def cmd_serve(args: argparse.Namespace) -> None:
 
     # check_same_thread=False: API serves on a threadpool over one connection (WAL).
     store = Store(config.db_path(), check_same_thread=False)
+    # Any provision run still 'running' here lost its worker on the last restart —
+    # mark it interrupted so the UI shows no zombie pipelines (0023).
+    orphaned = store.fail_orphaned_runs()
+    if orphaned:
+        print(f"marked {orphaned} interrupted provision run(s) from a prior restart")
     app = create_app(store)  # consumer API (service tokens)
     # add_dashboard_routes also wires /api/auth/* (Firebase exchange → bbv2 session).
     add_dashboard_routes(app, store, verify_token)  # /api/* (Firebase)

@@ -50,6 +50,7 @@ export function StoryRow({ story }: { story: StoryLike }) {
         target="_blank"
         rel="noreferrer"
         className="story-title"
+        onClick={() => story.item_id && api.recordClick(story.item_id)}
       >
         {story.title}
       </a>

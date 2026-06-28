@@ -43,15 +43,21 @@ read it before touching the server.
         ▼
  SQLite  /home/briefbot/briefbot/data/bbv2.db  (WAL)
 
- cron (briefbot):  bbv2 tick  @ :07 hourly   ·  bbv2 nightly @ 23:00
+ cron (briefbot):  bbv2 tick  every 15 min   ·  bbv2 nightly @ 23:00
 ```
+
+> **Cron cadence (0020):** `tick` runs **every 15 min** (`*/15 * * * *`) — the
+> finest scheduling granularity and the window a per-topic `daily`/`weekly`
+> discovery slot fires in (`SCHEDULER_WINDOW_MIN=15` must match the crontab). It's
+> cheap: `tick` is due-gated, so most runs are no-ops. To set it:
+> `crontab -e` → `*/15 * * * * cd /home/briefbot/briefbot && .venv/bin/python -m bbv2 tick >> data/logs/cron.log 2>&1`.
 
 | Service | Unit / mechanism | Role |
 |---|---|---|
 | Backend | `systemd bbv2` → `.venv/bin/python -m bbv2 serve --host 127.0.0.1 --port 8080` | FastAPI app (consumer + dashboard API) |
 | Web | `nginx` site `bbv2` on `127.0.0.1:8081` | serve built SPA + reverse-proxy `/api/` |
 | TLS / ingress | `tailscale serve --bg http://127.0.0.1:8081` | HTTPS on the tailnet name (auto cert) |
-| Cron | `briefbot` crontab | hourly `tick` (pull) + nightly `nightly` (briefs+email) |
+| Cron | `briefbot` crontab | `tick` every 15 min (pull) + nightly `nightly` (briefs+email) |
 | Deploy | `systemd actions.runner.migoVanDingo-briefbot.briefbot-vm` | GitHub Actions self-hosted runner |
 
 All five are `systemctl enable`d (or persist their own config) → survive reboot.
@@ -175,10 +181,22 @@ they install Tailscale → browse the URL. They self-register via Firebase login
 - The Proxmox MCP `create_vm` is bare-bones (cpu/mem/disk only); ISO attach,
   cloud-init, boot order, resize were done via the REST API (`curl` + token).
 
-## Not yet exposed
+## Consumer API for `trader` (0022)
 
-The **consumer API** (root `/topics` `/items` `/health`, service-token read used by
-the `trader` project) is **not** proxied by nginx — those paths collide with the
-dashboard's own SPA routes (only `/api/*` is proxied). When the trader↔bbv2
-integration resumes, expose the consumer API on its own path/port (a second
-`tailscale serve` path or a dedicated location block).
+The service-token **consumer API** now lives under **`/consumer`** (`/consumer/topics`,
+`/consumer/items`) so it no longer collides with the SPA routes; root `/health`
+stays for the deploy check. Add this nginx location (before the SPA `try_files`
+catch-all) and reload nginx — it's part of the server config preserved outside the
+repo:
+
+```nginx
+location /consumer/ {
+    proxy_pass http://127.0.0.1:8080;
+    proxy_set_header Host $host;
+    proxy_set_header Authorization $http_authorization;
+}
+```
+
+Then point `trader` at `https://briefbot.tailb058fe.ts.net/consumer` with a scoped
+token (`bbv2 token create --label trader --topics crypto,…`). It pulls incrementally
+via the `next_since` cursor on `/consumer/items`.

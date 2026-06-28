@@ -108,3 +108,69 @@ class _StubSession:
 def test_brave_search_parses_results():
     out = brave_search("q", api_key="k", session=_StubSession())
     assert out == [{"url": "https://x.example/a", "title": "A"}]
+
+
+def test_craft_queries_uses_llm_with_fallback():
+    from bbv2.discovery import craft_queries, build_queries
+    gen = lambda prompt, **k: '["Glock new models news", "gun law changes", "NRA news"]'
+    qs = craft_queries("Firearms", "", gen)
+    assert qs == ["Glock new models news", "gun law changes", "NRA news"]
+    # LLM error → heuristic fallback (never crashes discovery)
+    boom = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("down"))
+    assert craft_queries("Firearms", "", boom) == build_queries("Firearms", "")
+    # no generate → heuristic
+    assert craft_queries("Firearms", "", None) == build_queries("Firearms", "")
+
+
+def test_junk_feed_urls_filtered():
+    from bbv2.discover import is_junk_feed_url
+    assert is_junk_feed_url("https://en.wikipedia.org/w/api.php?action=featuredfeed&feed=potd")
+    assert is_junk_feed_url("https://example.com/comments/feed/")
+    assert not is_junk_feed_url("https://thefirearmblog.com/feed/")
+
+
+def test_discover_retries_then_finds(monkeypatch):
+    from bbv2.discovery import discover_sources
+    from bbv2.store import Store
+
+    store = Store(":memory:")
+    store.add_topic("firearms", "Firearms")
+    attempts_seen = []
+
+    # First attempt's queries find nothing; a later attempt finds a feed.
+    def fake_generate(prompt, **k):
+        attempts_seen.append(prompt)
+        # vary by attempt count so the retry produces different queries
+        return f'["q{len(attempts_seen)}"]'
+
+    def fake_search(query, n):
+        return [{"url": "https://guns.example/post", "title": "Guns"}] if query == "q3" else []
+
+    def fake_feed_finder(site):
+        return ["https://guns.example/feed/"]
+
+    stats = discover_sources(
+        store, "firearms",
+        generate=fake_generate, searcher=fake_search, feed_finder=fake_feed_finder,
+        min_candidates=1,
+    )
+    assert stats["candidates"] == 1
+    assert stats["attempts"] == 3  # retried until q3 hit
+    assert stats["added"] == ["https://guns.example/feed/"]
+
+
+def test_provision_errors_when_no_sources(monkeypatch):
+    import bbv2.provision as provision
+    from bbv2.store import Store
+
+    store = Store(":memory:")
+    store.add_topic("firearms", "Firearms")
+    events = list(
+        provision.provision_topic(
+            store, "firearms",
+            discover=lambda: {"candidates": 0},  # discovery found nothing
+            collect=lambda: {"new": 0},
+        )
+    )
+    assert events[-1]["type"] == "error"
+    assert "couldn't find good sources" in events[-1]["message"]

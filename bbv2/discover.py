@@ -56,6 +56,22 @@ def discover_feeds_from_html(html: str, base_url: str) -> list[str]:
     return feeds
 
 
+# Feed URLs that are structurally never topic news (advertised on many pages):
+# Wikipedia's generic featured/picture-of-the-day feeds, WordPress comment feeds.
+_JUNK_FEED_MARKERS = (
+    "action=featuredfeed",  # en.wikipedia.org/w/api.php?action=featuredfeed (potd/featured)
+    "/comments/feed",
+    "comments/feed/",
+    "feed=comments",
+    "comments-rss",
+)
+
+
+def is_junk_feed_url(url: str) -> bool:
+    u = (url or "").lower()
+    return any(m in u for m in _JUNK_FEED_MARKERS)
+
+
 def _looks_like_feed(content_type: str, body: str, url: str) -> bool:
     # Require the *response* to look like a feed; a feed-ish URL path alone is
     # not enough (e.g. an HTML page served at "/feed").
@@ -121,13 +137,15 @@ def discover_site_feeds(
     headers = {"User-Agent": "bbv2/0.1"}
     resp = safe_get(site_url, session=sess, timeout=timeout, headers=headers)
     resp.raise_for_status()
-    feeds = discover_feeds_from_html(resp.text, site_url)
+    feeds = [f for f in discover_feeds_from_html(resp.text, site_url) if not is_junk_feed_url(f)]
     if feeds:
         return feeds
 
     soup = BeautifulSoup(resp.text, "html.parser")
     probed: list[str] = []
     for candidate in _candidate_feed_urls(site_url, soup):
+        if is_junk_feed_url(candidate):
+            continue
         try:
             r = safe_get(candidate, session=sess, timeout=timeout, headers=headers)
         except (requests.RequestException, UnsafeURLError):

@@ -21,6 +21,7 @@ def provision_topic(
     *,
     discover: Callable[[], dict[str, Any]] | None = None,
     collect: Callable[[], dict[str, Any]] | None = None,
+    query_generate: Callable[..., str] | None = None,
     review_generate: Callable[..., str] | None = None,
     brief_generate: Callable[..., str] | None = None,
 ) -> Iterator[dict[str, Any]]:
@@ -32,7 +33,7 @@ def provision_topic(
         from .discovery import discover_sources
 
         def discover() -> dict[str, Any]:
-            return discover_sources(store, topic_slug)
+            return discover_sources(store, topic_slug, generate=query_generate)
 
     if collect is None:
         from .collect import collect as _collect
@@ -47,6 +48,15 @@ def provision_topic(
         yield {"type": "error", "message": f"discovery failed: {exc}"}
         return
     candidates = int(d.get("candidates", 0))
+
+    # No usable sources found (after retries) and none already active → tell the
+    # user plainly rather than leaving an empty "ready" topic.
+    if candidates == 0 and not store.topic_has_sources(topic_slug):
+        yield {
+            "type": "error",
+            "message": "couldn't find good sources for this topic — try a more specific name or description",
+        }
+        return
 
     yield {"type": "stage", "stage": "approving", "candidates": candidates}
     approved = store.approve_all_candidates(topic_slug)

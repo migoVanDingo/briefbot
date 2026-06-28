@@ -91,6 +91,48 @@ def grok_text(
     return text
 
 
+def grok_image(
+    prompt: str,
+    *,
+    model: str | None = None,
+    aspect_ratio: str = "16:9",
+    resolution: str = "1k",
+    timeout: int = 120,
+) -> bytes:
+    """Generate one image via xAI Grok Imagine (OpenAI-compatible images endpoint).
+    Returns the raw JPEG bytes (requested as base64 to avoid the temporary-URL
+    race). Raises `LLMError` on any failure (callers treat image gen as best-effort)."""
+    import base64
+
+    api_key = config.grok_api_key()
+    if not api_key:
+        raise LLMError("GROK_API_KEY not set")
+    resp = _request(
+        lambda: requests.post(
+            config.grok_image_url(),
+            timeout=timeout,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "content-type": "application/json",
+            },
+            json={
+                "model": model or config.grok_image_model(),
+                "prompt": prompt,
+                "response_format": "b64_json",
+                "aspect_ratio": aspect_ratio,
+                "resolution": resolution,
+            },
+        )
+    )
+    if resp.status_code >= 400:
+        raise LLMError(f"Grok image HTTP {resp.status_code}: {resp.text[:300]}")
+    arr = (resp.json().get("data") or [])
+    b64 = arr[0].get("b64_json") if arr else None
+    if not b64:
+        raise LLMError("Grok image returned no data")
+    return base64.b64decode(b64)
+
+
 def generate_text(
     prompt: str,
     *,

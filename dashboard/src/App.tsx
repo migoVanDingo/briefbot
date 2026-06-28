@@ -16,6 +16,8 @@ import { Favorites } from "./pages/Favorites";
 import { TopicsHome } from "./pages/TopicsHome";
 import { Topics } from "./pages/admin/Topics";
 import { TopicDetail } from "./pages/admin/TopicDetail";
+import { Scheduling } from "./pages/admin/Scheduling";
+import { Metrics } from "./pages/admin/Metrics";
 import { Settings } from "./pages/Settings";
 
 // Gate the admin area: users without the admin capability are redirected to
@@ -80,6 +82,22 @@ export default function App() {
               element={
                 <RequireAdmin>
                   <TopicDetail />
+                </RequireAdmin>
+              }
+            />
+            <Route
+              path="admin/scheduling"
+              element={
+                <RequireAdmin>
+                  <Scheduling />
+                </RequireAdmin>
+              }
+            />
+            <Route
+              path="admin/metrics"
+              element={
+                <RequireAdmin>
+                  <Metrics />
                 </RequireAdmin>
               }
             />

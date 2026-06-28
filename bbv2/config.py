@@ -91,6 +91,29 @@ def grok_model() -> str:
     return os.getenv("GROK_MODEL") or GROK_DEFAULT_MODEL
 
 
+# Grok Imagine — per-topic header images (system call; reuses GROK_API_KEY).
+GROK_IMAGE_DEFAULT_MODEL = "grok-imagine-image-quality"
+GROK_IMAGE_URL = "https://api.x.ai/v1/images/generations"
+
+
+def grok_image_model() -> str:
+    return os.getenv("GROK_IMAGE_MODEL") or GROK_IMAGE_DEFAULT_MODEL
+
+
+def grok_image_url() -> str:
+    return os.getenv("GROK_IMAGE_URL") or GROK_IMAGE_URL
+
+
+def topic_images_dir() -> Path:
+    return Path(os.getenv("BBV2_TOPIC_IMAGES_DIR", str(_root() / "data" / "topic_images")))
+
+
+def topic_images_enabled() -> bool:
+    """Generate a per-topic header image (Grok Imagine). Needs a Grok key; set
+    TOPIC_IMAGES_ENABLED=false to turn it off."""
+    return _bool_env("TOPIC_IMAGES_ENABLED", True) and bool(grok_api_key())
+
+
 def relevance_provider() -> str:
     """Which provider classifies story relevance: 'grok' (default when a Grok key
     is set) or 'anthropic'. Grok work falls back to Haiku on error regardless."""
@@ -243,6 +266,19 @@ def default_collect_interval_min() -> int:
     return _int_env("COLLECT_INTERVAL_MIN_DEFAULT", 360)  # 6h
 
 
+def provision_workers() -> int:
+    """Max concurrent background provisioning runs (0023). Caps load on Brave/feeds;
+    excess runs queue."""
+    return _int_env("PROVISION_WORKERS", 3)
+
+
+def scheduler_window_min() -> int:
+    """The `bbv2 tick` heartbeat interval (minutes) — also the window a `daily`/
+    `weekly` discovery slot fires in. MUST match the server crontab (0020 sets it
+    to */15). If a tick is missed, a daily slot is skipped that day (no catch-up)."""
+    return _int_env("SCHEDULER_WINDOW_MIN", 15)
+
+
 def max_sources_per_topic() -> int:
     """Cap on candidate sources discovered/approved for a topic (keeps provisioning
     fast and the archive lean). Default for new topics; env-overridable."""
@@ -252,6 +288,29 @@ def max_sources_per_topic() -> int:
 def max_stories_per_source() -> int:
     """Cap on stories ingested per source per collect (newest first)."""
     return _int_env("MAX_STORIES_PER_SOURCE", 7)
+
+
+def _float_env(name: str, default: float) -> float:
+    try:
+        return float(os.getenv(name, str(default)))
+    except ValueError:
+        return default
+
+
+def llm_prices() -> dict[str, dict[str, float]]:
+    """USD per 1M tokens, per model family, for the **estimated** cost metrics
+    (0021) — there's no live billing API. Env-overridable as prices change.
+    Defaults are ballpark public list prices for grok-3-mini / Claude Haiku."""
+    return {
+        "grok": {
+            "in": _float_env("GROK_PRICE_IN", 0.30),
+            "out": _float_env("GROK_PRICE_OUT", 0.50),
+        },
+        "haiku": {
+            "in": _float_env("HAIKU_PRICE_IN", 1.00),
+            "out": _float_env("HAIKU_PRICE_OUT", 5.00),
+        },
+    }
 
 
 def collect_max_age_days() -> int:

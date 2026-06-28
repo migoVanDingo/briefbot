@@ -29,7 +29,14 @@ def _window_start_iso(window_s: float) -> str:
     return start.isoformat()
 
 
-def meter_usage(store: Store, user_id: int, purpose: str, usage: Any, model: str | None) -> None:
+def meter_usage(
+    store: Store,
+    user_id: int,
+    purpose: str,
+    usage: Any,
+    model: str | None,
+    topic_id: int | None = None,
+) -> None:
     """Record an Anthropic/Grok `usage` block ({input_tokens, output_tokens})."""
     if not isinstance(usage, dict):
         return
@@ -39,31 +46,46 @@ def meter_usage(store: Store, user_id: int, purpose: str, usage: Any, model: str
         model,
         int(usage.get("input_tokens") or 0),
         int(usage.get("output_tokens") or 0),
+        topic_id=topic_id,
     )
 
 
-def metered_generate(store: Store, user_id: int, purpose: str) -> Callable[..., str]:
+def metered_generate(
+    store: Store, user_id: int, purpose: str, topic_id: int | None = None
+) -> Callable[..., str]:
     """A `generate_text` (Haiku) drop-in that meters each call's tokens to
-    `user_id` (pass `SYSTEM_USER_ID` for background work)."""
+    `user_id` (pass `SYSTEM_USER_ID` for background work) and optionally a topic."""
 
     def _generate(prompt: str, **kwargs: Any) -> str:
         def _on_usage(usage: dict[str, Any], model: str) -> None:
-            meter_usage(store, user_id, purpose, usage, model)
+            meter_usage(store, user_id, purpose, usage, model, topic_id)
 
         return generate_text(prompt, on_usage=_on_usage, **kwargs)
 
     return _generate
 
 
-def metered_relevance_generate(store: Store, user_id: int, purpose: str) -> Callable[..., str]:
+def metered_relevance_generate(
+    store: Store, user_id: int, purpose: str, topic_id: int | None = None
+) -> Callable[..., str]:
     """Like `metered_generate` but routed to the cheap relevance model (Grok →
     Haiku fallback). Used for story relevance review (collection + provisioning)."""
     from .models import relevance_generate
 
     def _on_usage(usage: dict[str, Any], model: str) -> None:
-        meter_usage(store, user_id, purpose, usage, model)
+        meter_usage(store, user_id, purpose, usage, model, topic_id)
 
     return relevance_generate(on_usage=_on_usage)
+
+
+def estimate_cost(model: str | None, input_tokens: int, output_tokens: int) -> float:
+    """Estimated USD for a call from `config.llm_prices()` (per 1M tokens). Grok
+    models map to the 'grok' price, everything else (Haiku/Claude) to 'haiku'.
+    A ballpark for the cost trend — not a billed amount."""
+    prices = config.llm_prices()
+    family = "grok" if model and "grok" in model.lower() else "haiku"
+    p = prices[family]
+    return (input_tokens * p["in"] + output_tokens * p["out"]) / 1_000_000
 
 
 def format_reset(seconds: float) -> str:
