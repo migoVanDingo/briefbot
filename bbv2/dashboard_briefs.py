@@ -95,7 +95,7 @@ def add_brief_routes(
         for t in subs:
             b = store.latest_brief(int(t["id"]))
             if b:
-                topic_image.maybe_kick(store, t, b["summary"])  # one-time, background
+                topic_image.maybe_kick(store, t, b)  # per-day image, background
                 out.append(serialize_brief(t, b))
         return {
             "briefs": out,
@@ -114,10 +114,10 @@ def add_brief_routes(
         limit = max(1, min(limit, 30))
         today = datetime.now(timezone.utc).date().isoformat()
         rows = store.recent_briefs(int(topic["id"]), limit)
-        if rows:  # one-time, background image gen seeded from the latest brief
+        if rows:  # per-day image for the latest brief, seeded from its summary
             from . import topic_image
 
-            topic_image.maybe_kick(store, topic, rows[0]["summary"])
+            topic_image.maybe_kick(store, topic, rows[0])
         by_date = {r["date"]: r for r in rows}
         dates = [today] if today not in by_date else []
         dates += [r["date"] for r in rows]
@@ -180,5 +180,5 @@ def add_brief_routes(
             return {"rundown": None, "reason": "no recent items to summarize"}
         from . import topic_image
 
-        topic_image.maybe_kick(store, topic, row["summary"])  # one-time, background
+        topic_image.maybe_kick(store, topic, row)  # per-day image, background
         return {"rundown": serialize_brief(topic, row)}

@@ -47,7 +47,8 @@ def brave_search(
     data = resp.json()
     results = (data.get("web") or {}).get("results") or []
     return [
-        {"url": r.get("url"), "title": r.get("title")}
+        # `description` is Brave's snippet — surfaced in the 0030 discovery preview.
+        {"url": r.get("url"), "title": r.get("title"), "description": r.get("description") or ""}
         for r in results
         if r.get("url")
     ]

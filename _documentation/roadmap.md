@@ -5,8 +5,9 @@ Phased build is tracked in [`../_plans/`](../_plans/) (shipped through `0028` �
 scheduling + caps, `0021` admin metrics, `0022` consumer API under `/consumer`,
 `0023` durable provisioning pipelines, `0024` topic header images, `0025`
 codebase review + fixes, `0026` logging, `0027` metrics expansion, `0028` user
-profiles + avatars, `0029` auto-drop dead/blocked feeds). This file holds what's
-**left** — backlog and rough edges.
+profiles + avatars, `0029` auto-drop dead/blocked feeds, `0030` topic embedding
+index + on-demand source discovery). This file holds what's **left** — backlog and
+rough edges.
 
 ## Next (each its own plan)
 
@@ -79,8 +80,9 @@ Bigger directional bets — not yet specced. Each would get its own plan.
   after collect (`bbv2 quickscan`; runs as a provision stage). Pending items show
   until reviewed — run quickscan / re-provision to clean an existing topic. At
   scale, add a cheap pre-filter before the LLM call.
-- **Semantic search.** Stories + Favorites search is token-AND (LIKE). Embeddings
-  would enable true semantic search; pairs with persistent clusters below.
+- **Semantic search.** Stories + Favorites search is token-AND (LIKE). The `0030`
+  **topic embedding index** (OpenAI + `topic_embeddings` + pure-Python cosine) is
+  the foundation — extend it to embed *items* for true semantic story search.
 - **Token metering (0012, mostly closed).** Chat, provision **review**, and now the
   discovery **query crafter** (`craft_queries`, metered via the injected `query_gen`)
   are all metered per user/system; image gen is metered per-image (0027). Budget is

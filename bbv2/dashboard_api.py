@@ -307,6 +307,54 @@ def add_dashboard_routes(
             rows = store.runs_for_user(user["id"])
         return {"runs": [_run_dict(r) for r in rows]}
 
+    def _discovery_dict(r: Any) -> dict[str, Any]:
+        import json as _json
+
+        result = _json.loads(r["result_json"]) if r["result_json"] else None
+        return {
+            "id": r["id"],
+            "query": r["query"],
+            "stage": r["stage"],
+            "status": r["status"],
+            "failed": r["status"] == "error",
+            "error": r["error"],
+            "message_id": r["message_id"],
+            "conversation_id": r["conversation_id"],
+            "committed": bool(r["committed_at"]) if "committed_at" in r.keys() else False,
+            "candidates": (result or {}).get("candidates") or [],
+            "web_results": (result or {}).get("web_results") or [],
+        }
+
+    @router.get("/discoveries")
+    def discoveries(
+        conversation: str | None = None, user: dict = Depends(current_user)
+    ) -> dict[str, Any]:
+        """The caller's in-progress + just-finished on-demand source searches (0030)
+        — the poll source for the chat results card."""
+        if conversation:
+            rows = store.discovery_runs_for_conversation(user["id"], conversation)
+        else:
+            rows = store.discovery_runs_for_user(user["id"])
+        return {"runs": [_discovery_dict(r) for r in rows]}
+
+    @router.post("/discoveries/{run_id}/commit")
+    def commit_discovery_route(run_id: str, user: dict = Depends(current_user)) -> dict[str, Any]:
+        """Place a finished search's sources into the best-matching topic(s) — or a
+        new one — via the embedding index, subscribe the user, and kick collection
+        (0030). The 'Add these sources' button (and the conversational path) call this."""
+        from .discovery_commit import commit_discovery
+
+        _enforce_budget(user["id"])
+        decision = commit_discovery(
+            store, run_id, user["id"],
+            moderate_generate=usage.metered_generate(store, user["id"], "moderation"),
+            name_generate=usage.metered_generate(store, user["id"], "provision"),
+            review_generate=usage.metered_relevance_generate(store, user["id"], "provision"),
+        )
+        if "error" in decision:
+            raise HTTPException(status_code=400, detail=decision["error"])
+        return decision
+
     @router.post("/topics/{slug}/subscribe")
     def subscribe(slug: str, user: dict = Depends(current_user)) -> dict[str, Any]:
         store.subscribe(user["id"], int(_topic_or_404(slug)["id"]))
@@ -461,14 +509,14 @@ def add_dashboard_routes(
         )
         return {"ok": True}
 
-    # Public (no auth): a topic's generated header image (0024). Mounted on `app`
-    # rather than `router` so an <img> tag can load it cross-origin in dev without
-    # the session cookie. The image is a non-sensitive AI illustration.
-    @app.get("/api/topics/{slug}/image")
-    def topic_image_file(slug: str):
-        row = store.get_topic(slug)
-        path = row["image_path"] if row and "image_path" in row.keys() else None
-        status = row["image_status"] if row and "image_status" in row.keys() else "none"
+    # Public (no auth): a brief's per-day generated header image (0032). Mounted on
+    # `app` so an <img> tag loads it without the session cookie. Non-sensitive AI art.
+    @app.get("/api/topics/{slug}/briefs/{date}/image")
+    def brief_image_file(slug: str, date: str):
+        topic = store.get_topic(slug)
+        brief = store.get_brief(int(topic["id"]), date) if topic else None
+        path = brief["image_path"] if brief and "image_path" in brief.keys() else None
+        status = brief["image_status"] if brief and "image_status" in brief.keys() else "none"
         if status != "ready" or not path or not os.path.exists(path):
             raise HTTPException(status_code=404, detail="no image")
         return FileResponse(path, media_type="image/jpeg")

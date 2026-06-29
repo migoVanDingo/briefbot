@@ -216,12 +216,46 @@ ULID PK isn't content-derived; `store.upsert_item` returns the canonical id.
   (explicit allowlist, never `*` with credentials) and `BBV2_SERVE_HOST`. Logs from
   the unattended `tick`/`nightly` cron go to `BBV2_LOG_DIR` via the `logging` module
   (configured in `cli.main`).
-- **Topic header images (0024):** a per-topic image (Grok Imagine, `llm.grok_image`)
-  generated **once** in the background (`topic_image.maybe_kick` → bounded pool) the
-  first time a topic has a brief — seeded from the brief summary, stored under
-  `data/topic_images/`, status on `topics.image_path`/`image_status`. Served public
-  via `GET /api/topics/{slug}/image`; shown as the Headlines brief banner (shimmer
-  while pending). Best-effort — moderation/errors just yield no image.
+- **Per-day brief images (0024 → 0032):** each **brief** (`(topic, date)`) gets its
+  OWN Grok Imagine image (`topic_image.maybe_kick(store, topic, brief_row)` →
+  bounded pool), seeded from that day's summary, generated lazily on view (bounded
+  to the latest brief per topic). Stored `data/topic_images/<slug>-<date>.jpg`,
+  status on `briefs.image_path`/`image_status`; served public via
+  `GET /api/topics/{slug}/briefs/{date}/image`; shown as the Headlines brief banner
+  (shimmer while pending, polled per day). Best-effort. (`topics.image_*` is
+  vestigial.)
+
+## Topic embedding index + on-demand source discovery (0030)
+
+- **Embedding index** (`embeddings.py`, `topic_index.py`, `topic_embeddings`
+  table): OpenAI `text-embedding-3-small` over plain HTTP. Each topic gets a
+  `meta` vector (name+description, the always-present floor) and one `brief` vector
+  per day from that day's brief summary. Generation is decoupled from the
+  brief-build path — the **nightly** sweep (`embed_pending_briefs`) embeds any
+  recent brief lacking a vector (catches nightly + on-demand briefs), and
+  `ensure_meta_embeddings` keeps the floor warm. A topic's routing vector is the
+  **centroid of its recent (`EMBED_CENTROID_DAYS`) brief vectors**, else its meta
+  vector. Vectors are packed float32 BLOBs; cosine/centroid are pure-Python (no
+  vector DB). `bbv2 embed-topics` backfills. Disabled (no `OPENAI_API_KEY`) →
+  routing falls back to a heuristic.
+- **On-demand discovery** (`discovery.discover_for_query`, `discovery_runner.py`,
+  `discovery_runs` table): the chat agent's **`find_sources(query)`** tool kicks a
+  durable background search (Brave → resolve feeds → 2-3 sample headlines each +
+  raw web results) surfaced as a **results card** in chat (`/api/discoveries`
+  poll, survives navigation, mirrors 0023). On confirm — the card's **Add** button
+  (`POST /api/discoveries/{id}/commit`) or the conversational **`commit_sources`**
+  tool — `discovery_commit.commit_discovery` ranks the query against the topic
+  index (`rank_topics`), attaches the feeds to the best topic(s) (≥`PLACEMENT_MIN`,
+  multi-attach ≥`PLACEMENT_MULTI`) or **creates a focused new topic** when nothing
+  clears the floor, subscribes the user, and kicks a background collect+review.
+  `discover_sources()` (topic provisioning) is now a thin wrapper over
+  `discover_for_query`.
+- **Agent conversant about found sources (0031):** the discovery preview captures
+  `sample_articles` (`{title, url}`); the agent's `_context_block` injects the
+  conversation's recent uncommitted search (sources + a few article titles) so the
+  agent can discuss it, and two tools give depth — `read_source(source)` lists a
+  source's recent articles and `summarize_article(url=…)` summarizes an arbitrary
+  (not-yet-subscribed) article. So a user can explore found sources before adding.
 
 ## Observability, metrics & profiles (0026–0028)
 

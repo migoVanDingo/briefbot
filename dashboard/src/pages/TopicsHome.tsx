@@ -23,6 +23,8 @@ export function TopicsHome() {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [creating, setCreating] = useState(false);
+  // Toggle: on → only the user's subscribed topics; off → all available topics.
+  const [subscribedOnly, setSubscribedOnly] = useState(false);
   // Active provisioning pipelines (any surface), polled so they persist + appear
   // here even if started from chat (0023).
   const { runs, refresh: refreshRuns } = useProvisioning();
@@ -153,25 +155,48 @@ export function TopicsHome() {
       {topics === null ? (
         <div className="muted pad">Loading…</div>
       ) : (
-        <ul className="list" data-tour="topics-list">
-          {topics.map((t) => (
-            <li key={t.slug} className="list-row">
-              <div>
-                <div className="list-title">{t.name}</div>
-                <div className="muted small">{t.slug}</div>
-              </div>
+        <>
+          {topics.length > 0 && (
+            <div className="topics-toolbar">
               <button
-                className={`btn ${t.subscribed ? "ghost" : "primary"}`}
-                onClick={() => toggle(t)}
+                type="button"
+                role="switch"
+                aria-checked={subscribedOnly}
+                className={`toggle-pill${subscribedOnly ? " on" : ""}`}
+                onClick={() => setSubscribedOnly((v) => !v)}
               >
-                {t.subscribed ? "Subscribed ✓" : "Subscribe"}
+                <span className="toggle-knob" />
+                Show subscribed only
               </button>
-            </li>
-          ))}
-          {topics.length === 0 && (
-            <li className="muted pad">No topics yet — create one above.</li>
+            </div>
           )}
-        </ul>
+          <ul className="list" data-tour="topics-list">
+            {(subscribedOnly ? topics.filter((t) => t.subscribed) : topics).map((t) => (
+              <li key={t.slug} className="list-row">
+                <div>
+                  <div className="list-title">{t.name}</div>
+                  <div className="muted small">{t.slug}</div>
+                </div>
+                <button
+                  className={`btn ${t.subscribed ? "ghost" : "primary"}`}
+                  onClick={() => toggle(t)}
+                >
+                  {t.subscribed ? "Subscribed ✓" : "Subscribe"}
+                </button>
+              </li>
+            ))}
+            {topics.length === 0 && (
+              <li className="muted pad">No topics yet — create one above.</li>
+            )}
+            {topics.length > 0 &&
+              subscribedOnly &&
+              topics.filter((t) => t.subscribed).length === 0 && (
+                <li className="muted pad">
+                  You're not subscribed to any topics yet — turn off the toggle to browse all.
+                </li>
+              )}
+          </ul>
+        </>
       )}
     </div>
   );

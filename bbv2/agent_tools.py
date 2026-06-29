@@ -36,14 +36,33 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     },
     {
         "name": "summarize_article",
-        "description": "Find the best-matching subscribed story for a query, fetch "
-        "it, and return a grounded summary. Use when asked to summarize/explain an article.",
+        "description": "Fetch an article and return a grounded summary. Pass `url` to "
+        "summarize a SPECIFIC article (e.g. one from a find_sources result, even if "
+        "it isn't subscribed yet) — prefer this when you have the article's url. "
+        "Otherwise pass `query` to find the best-matching subscribed story.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "query": {"type": "string", "description": "Title or topic of the article."}
+                "query": {"type": "string", "description": "Title or topic of a subscribed article."},
+                "url": {"type": "string", "description": "Direct article URL to fetch + summarize."},
+                "title": {"type": "string", "description": "Optional title for a `url` article."},
             },
-            "required": ["query"],
+        },
+    },
+    {
+        "name": "read_source",
+        "description": "List a specific source's RECENT articles (titles + urls). Use "
+        "when the user asks about a particular source — e.g. one from a find_sources "
+        "result ('list articles from smokinggun.org') or one they're subscribed to. "
+        "`source` can be a domain/name from the search results or a feed URL. After "
+        "listing, you can summarize any of them with summarize_article(url=…).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "source": {"type": "string", "description": "Source domain/name or feed URL."},
+                "limit": {"type": "integer", "description": "Max articles (default 15)."},
+            },
+            "required": ["source"],
         },
     },
     {
@@ -133,5 +152,39 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
             },
             "required": ["name"],
         },
+    },
+    {
+        "name": "find_sources",
+        "description": "Search the WEB for NEW sources (RSS feeds + articles) on a "
+        "specific subject the user wants to follow that isn't covered by their "
+        "current stories — e.g. 'find journals on multimodal learning in K-12'. This "
+        "starts a background web search; a results card with the found sources and "
+        "their latest headlines appears in the chat. Use this when search_stories "
+        "returns nothing relevant and the user wants sources/research on a topic. "
+        "After the results appear you can discuss them — list a source's articles "
+        "with read_source, summarize one with summarize_article(url=…) — and when the "
+        "user confirms, commit_sources places them into the best topic (or a new one).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "What to search the web for, e.g. 'multimodal learning in K-12 students'.",
+                }
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "commit_sources",
+        "description": "Add the sources from the most recent find_sources search in "
+        "this conversation to the user's topics. Call this ONLY after the user "
+        "confirms they want to add the found sources. The sources are routed to the "
+        "best-matching existing topic(s) by similarity, or a new topic if none fit. "
+        "When you report the result: say WHERE they went, that their stories will "
+        "appear in the MORNING BRIEF starting tomorrow (not today's — briefs are "
+        "daily), and that the user can explore them right now via the Stories page "
+        "or by asking you to search them. Relay the result's `note`.",
+        "input_schema": {"type": "object", "properties": {}},
     },
 ]

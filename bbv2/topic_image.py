@@ -43,55 +43,53 @@ def _prompt(topic_name: str, summary: str) -> str:
     )
 
 
-def generate_topic_image(
-    store: Store, slug: str, topic_name: str, summary: str, *, image_fn: ImageFn | None = None
+def generate_brief_image(
+    store: Store, topic_id: int, slug: str, date: str, topic_name: str, summary: str,
+    *, image_fn: ImageFn | None = None,
 ) -> None:
-    """Run one image generation to completion, recording the result on the topic."""
+    """Generate one DAY's brief image (0032), recording it on that brief row."""
     try:
         from .llm import grok_image
 
         data = (image_fn or grok_image)(_prompt(topic_name, summary))
         directory = config.topic_images_dir()
         directory.mkdir(parents=True, exist_ok=True)
-        path = directory / f"{slug}.jpg"
+        path = directory / f"{slug}-{date}.jpg"
         path.write_bytes(data)
-        store.set_topic_image(slug, str(path), READY)
-        # Meter one image to the system bucket so it shows in the cost breakdown
-        # (priced per-image, not per-token — input/output stay 0). Best-effort.
+        store.set_brief_image(topic_id, date, str(path), READY)
+        # Meter one image to the system bucket (priced per-image; 0 tokens). Best-effort.
         try:
-            topic = store.get_topic(slug)
-            store.record_usage(
-                0, "image", config.grok_image_model(), 0, 0,
-                topic_id=int(topic["id"]) if topic else None,
-            )
+            store.record_usage(0, "image", config.grok_image_model(), 0, 0, topic_id=topic_id)
         except Exception:  # pragma: no cover - never fail the gen on metering
             pass
-        log.info("topic image ready: %s", slug)
+        log.info("brief image ready: %s %s", slug, date)
     except Exception as exc:  # noqa: BLE001 - best-effort; never crash the pool
-        log.warning("topic image gen failed for %s: %s", slug, exc)
+        log.warning("brief image gen failed for %s %s: %s", slug, date, exc)
         try:
-            store.set_topic_image(slug, None, ERROR)
+            store.set_brief_image(topic_id, date, None, ERROR)
         except Exception:  # pragma: no cover
             pass
 
 
 def submit(
-    store: Store, slug: str, topic_name: str, summary: str, *, image_fn: ImageFn | None = None
+    store: Store, topic_id: int, slug: str, date: str, topic_name: str, summary: str,
+    *, image_fn: ImageFn | None = None,
 ) -> None:
-    _pool().submit(generate_topic_image, store, slug, topic_name, summary, image_fn=image_fn)
+    _pool().submit(
+        generate_brief_image, store, topic_id, slug, date, topic_name, summary, image_fn=image_fn
+    )
 
 
-def maybe_kick(store: Store, topic_row, summary: str | None) -> None:
-    """Start a one-time background image gen if this topic has none yet. Idempotent:
-    marks the topic 'pending' immediately so concurrent brief views don't double-fire."""
+def maybe_kick(store: Store, topic_row, brief_row) -> None:
+    """Start a one-time background image gen for THIS day's brief if it has none yet
+    (0032). Atomic claim so concurrent views don't double-fire the paid gen."""
+    summary = brief_row["summary"] if brief_row is not None else None
     if not config.topic_images_enabled() or not (summary or "").strip():
         return
-    status = topic_row["image_status"] if "image_status" in topic_row.keys() else "none"
+    status = brief_row["image_status"] if "image_status" in brief_row.keys() else "none"
     if status not in (None, "", "none"):
         return  # already pending / ready / errored — leave it
-    slug = topic_row["slug"]
-    # Atomic claim: only the thread that wins the unset→pending UPDATE submits, so
-    # concurrent first-views can't both fire the (paid) image gen.
-    if not store.claim_topic_image(slug):
+    topic_id, date = int(brief_row["topic_id"]), brief_row["date"]
+    if not store.claim_brief_image(topic_id, date):
         return
-    submit(store, slug, topic_row["name"], summary or "")
+    submit(store, topic_id, topic_row["slug"], date, topic_row["name"], summary or "")

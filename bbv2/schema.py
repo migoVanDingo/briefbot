@@ -204,6 +204,10 @@ CREATE TABLE IF NOT EXISTS briefs (
     trending_json TEXT NOT NULL DEFAULT '[]',
     sources_json TEXT NOT NULL DEFAULT '[]',
     model TEXT,
+    -- Per-brief (per-day) Grok Imagine header image (0032) — replaces the per-topic
+    -- image so each day's brief gets its own.
+    image_path TEXT,
+    image_status TEXT NOT NULL DEFAULT 'none',  -- none | pending | ready | error
     created_at TEXT NOT NULL,
     UNIQUE(topic_id, date)
 );
@@ -275,6 +279,24 @@ CREATE TABLE IF NOT EXISTS provision_runs (
     updated_at TEXT NOT NULL
 );
 
+-- Durable on-demand source-discovery runs (0030): a background search for a
+-- free-text query whose preview (candidate feeds + sample headlines + web
+-- results) is stored as JSON so the chat results card survives navigation.
+CREATE TABLE IF NOT EXISTS discovery_runs (
+    id TEXT PRIMARY KEY,                 -- DSC…
+    user_id INTEGER NOT NULL,
+    conversation_id TEXT,
+    message_id TEXT,
+    query TEXT NOT NULL,
+    stage TEXT,                          -- searching | probing | ready
+    status TEXT NOT NULL DEFAULT 'running', -- running | done | error
+    result_json TEXT,                    -- {candidates, web_results, stats}
+    committed_at TEXT,                   -- set once its sources are placed (0030 P5)
+    error TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
 -- Story link clicks — the one engagement signal not already captured (0021).
 CREATE TABLE IF NOT EXISTS story_clicks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -290,7 +312,23 @@ CREATE INDEX IF NOT EXISTS idx_token_usage_user_time ON token_usage(user_id, cre
 CREATE INDEX IF NOT EXISTS idx_user_sessions_user ON user_sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_auth_events_user_time ON auth_events(user_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_space_membership_user ON space_membership(user_id);
+-- Topic embedding index (0030): a vector per topic per day (from that day's brief)
+-- plus one 'meta' vector (from name+description) as an always-present floor. Backs
+-- evidence-based source routing; stored as packed float32 BLOBs (no vector DB).
+CREATE TABLE IF NOT EXISTS topic_embeddings (
+    topic_id INTEGER NOT NULL,
+    kind TEXT NOT NULL DEFAULT 'brief',   -- brief | meta
+    date TEXT NOT NULL DEFAULT '',         -- YYYY-MM-DD for a brief; '' for meta
+    model TEXT NOT NULL,
+    dim INTEGER NOT NULL,
+    vector BLOB NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (topic_id, kind, date)
+);
+
 CREATE INDEX IF NOT EXISTS idx_story_clicks_user ON story_clicks(user_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_provision_runs_user ON provision_runs(user_id, status);
 CREATE INDEX IF NOT EXISTS idx_provision_runs_conv ON provision_runs(conversation_id);
+CREATE INDEX IF NOT EXISTS idx_discovery_runs_user ON discovery_runs(user_id, status);
+CREATE INDEX IF NOT EXISTS idx_discovery_runs_conv ON discovery_runs(conversation_id);
 """

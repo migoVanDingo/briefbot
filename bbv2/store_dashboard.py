@@ -196,6 +196,28 @@ class DashboardQueriesMixin:
             "SELECT * FROM briefs WHERE topic_id = ? AND date = ?", (topic_id, date)
         ).fetchone()
 
+    # ---- per-day brief images (0032) ----
+    def claim_brief_image(self, topic_id: int, date: str) -> bool:
+        """Atomically move a brief's image unset→'pending'. Returns True only for the
+        caller that won the claim, so concurrent views don't double-fire image gen."""
+        cur = self.conn.execute(
+            "UPDATE briefs SET image_status = 'pending' "
+            "WHERE topic_id = ? AND date = ? "
+            "AND (image_status IS NULL OR image_status IN ('', 'none'))",
+            (topic_id, date),
+        )
+        self.conn.commit()
+        return cur.rowcount == 1
+
+    def set_brief_image(
+        self, topic_id: int, date: str, image_path: str | None, status: str
+    ) -> None:
+        self.conn.execute(
+            "UPDATE briefs SET image_path = ?, image_status = ? WHERE topic_id = ? AND date = ?",
+            (image_path, status, topic_id, date),
+        )
+        self.conn.commit()
+
     def latest_brief(self, topic_id: int) -> sqlite3.Row | None:
         return self.conn.execute(
             "SELECT * FROM briefs WHERE topic_id = ? ORDER BY date DESC LIMIT 1",

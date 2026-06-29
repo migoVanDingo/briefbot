@@ -23,6 +23,8 @@ PURPOSE_META: dict[str, tuple[str, str]] = {
     "review": ("Relevance review", "Filtering collected stories for topic relevance."),
     "relevance": ("Relevance review", "Scheduled relevance filtering during collection."),
     "image": ("Header images", "Grok Imagine topic/profile images (priced per image)."),
+    "embedding": ("Embeddings", "OpenAI text embeddings for the topic index + routing."),
+    "discovery_route": ("Source routing", "Embedding a search query to route new sources."),
 }
 
 

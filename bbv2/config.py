@@ -97,6 +97,47 @@ def grok_api_key() -> str | None:
     return os.getenv("GROK_API_KEY") or os.getenv("XAI_API_KEY") or None
 
 
+# OpenAI text embeddings (0030) — power the topic embedding index + evidence-based
+# source routing. Plain HTTP (no SDK), same as our other LLM calls.
+OPENAI_EMBED_URL = "https://api.openai.com/v1/embeddings"
+OPENAI_EMBED_DEFAULT_MODEL = "text-embedding-3-small"
+
+
+def openai_api_key() -> str | None:
+    return os.getenv("OPENAI_API_KEY") or None
+
+
+def openai_embed_model() -> str:
+    return os.getenv("OPENAI_EMBED_MODEL") or OPENAI_EMBED_DEFAULT_MODEL
+
+
+def embeddings_enabled() -> bool:
+    """Topic embeddings + evidence-based routing need an OpenAI key. Without one,
+    routing falls back to agent judgment (0030)."""
+    return bool(openai_api_key())
+
+
+def embed_price() -> float:
+    """Estimated USD per 1M embedding tokens, for the metrics ballpark (0030)."""
+    return _float_env("OPENAI_EMBED_PRICE", 0.02)
+
+
+def embed_centroid_days() -> int:
+    """A topic's vector = centroid of its brief embeddings over the last N days."""
+    return _int_env("EMBED_CENTROID_DAYS", 30)
+
+
+def placement_min() -> float:
+    """Min cosine for a source to be placed in an existing topic (0030). Below this
+    for every topic → create a new topic. Calibrate against real score logs."""
+    return _float_env("BBV2_PLACEMENT_MIN", 0.32)
+
+
+def placement_multi() -> float:
+    """Cosine at/above which a source is ALSO attached to a secondary topic (0030)."""
+    return _float_env("BBV2_PLACEMENT_MULTI", 0.45)
+
+
 def grok_model() -> str:
     return os.getenv("GROK_MODEL") or GROK_DEFAULT_MODEL
 
@@ -290,6 +331,12 @@ def provision_workers() -> int:
     """Max concurrent background provisioning runs (0023). Caps load on Brave/feeds;
     excess runs queue."""
     return _int_env("PROVISION_WORKERS", 3)
+
+
+def discovery_preview_max() -> int:
+    """Candidate feeds to surface in an on-demand `find_sources` preview (0030).
+    Kept small so the background search stays snappy."""
+    return _int_env("BBV2_DISCOVERY_PREVIEW_MAX", 6)
 
 
 def scheduler_window_min() -> int:

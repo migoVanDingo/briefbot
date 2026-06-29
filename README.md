@@ -34,6 +34,14 @@ a Vite/React dashboard with Firebase auth:
   `subscribe_topic`), searches/summarizes, and personalizes from a per-turn context
   block (subscriptions, token budget, available topics). First-visit onboarding:
   canned greeting + React-Joyride tour; new users' Headlines populate during setup.
+- **On-demand source discovery** (`0030`) — ask the agent to *find sources* on a
+  subject your stories don't cover ("find journals on multimodal learning in
+  K-12"). It runs a background web search (Brave → RSS feeds + latest headlines +
+  web results) shown as a results card in chat; on confirm the feeds are routed —
+  by **embedding similarity** against a per-topic vector index (OpenAI
+  `text-embedding-3-small`, built nightly from each topic's brief) — into the
+  best-matching topic(s), or a focused **new topic** if none fit, then subscribed
+  and collected. Evidence-based placement, not opinion.
 - **Auth, RBAC + spaces** — the Firebase token is exchanged once for a bbv2
   **session** (own access JWT + revocable refresh token, HttpOnly cookies);
   authorization is **capability-based** (`bbv2/rbac.py`), owner bootstrapped via

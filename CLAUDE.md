@@ -57,7 +57,8 @@ python -m bbv2 digest --dry-run     # LogNotifier; real Mailgun when MAILGUN_* s
 
 # Scheduling (0014) — two decoupled cron jobs:
 python -m bbv2 tick                 # hourly: due-based discovery + collection + quickscan
-python -m bbv2 nightly [--dry-run]  # 11pm: build subscribed-topic briefs + email "brief ready"
+python -m bbv2 nightly [--dry-run]  # 11pm: build subscribed-topic briefs + email; embed briefs (0030)
+python -m bbv2 embed-topics         # backfill the topic embedding index (0030; needs OPENAI_API_KEY)
 #   cadence is admin-set per topic (discover/collect) + per source (collect override)
 
 # Source discovery (0004) — Brave web search → candidate feeds → human approval
@@ -123,6 +124,10 @@ bbv2/
   metrics_labels.py  friendly purpose labels for the cost breakdown (0027)
   identicon.py   deterministic GitHub-style avatar SVG (0028)
   topic_image.py / avatar_image.py  Grok Imagine bg image gen (topics / avatars)
+  embeddings.py / topic_index.py  OpenAI embeddings + topic vector index/routing (0030)
+  discovery_runner.py / discovery_commit.py  bg source-search runs + embedding-routed placement (0030)
+  agent.py / agent_runs.py / agent_tools.py  chat agent loop / run-spawning tool handlers / tool schemas
+  cli.py / cli_parser.py  `python -m bbv2 …` + argparse wiring
   notify.py      Notifier protocol + LogNotifier + MailgunNotifier
   digest.py      per-user recent-items digest (non-LLM)
   cli.py         `python -m bbv2 …`  (-v/--verbose for DEBUG logs)
@@ -180,7 +185,12 @@ pushed)**: `0018` DB-persisted UI state · `0019` auth sessions + RBAC + spaces 
 under `/consumer` · `0023` durable provisioning pipelines · `0024` topic header
 images · **`0025` codebase review + fixes** (security/concurrency/modularity/
 mobile) · **`0026` structured logging** · **`0027` metrics expansion** · **`0028`
-user profiles + avatars**. Working end-to-end:
+user profiles + avatars** · **`0029` auto-drop dead/blocked feeds** · **`0030`
+topic embedding index + on-demand source discovery** (agent `find_sources` →
+background search → results card → embedding-routed placement) · **`0031` agent
+conversant about found sources** (`read_source` + `summarize_article(url)` +
+search results injected into agent context) · **`0032` per-day brief images +
+LLM-crafted names for newly-discovered topics**. Working end-to-end:
 
 - **Routes:** `/headlines` (per-topic tabs; a left **date rail** of the last 10
   days *with briefs* → that day's AI brief + that day's stories), `/chat` (Haiku

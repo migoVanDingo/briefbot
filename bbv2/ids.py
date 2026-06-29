@@ -35,6 +35,7 @@ BRIEF = "BRF"
 SESSION = "SES"
 SPACE = "SPC"
 PROVISION = "PRV"
+DISCOVERY = "DSC"
 
 
 def _encode(value: int, length: int) -> str:

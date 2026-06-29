@@ -61,6 +61,18 @@ def run_nightly(
         store.set_topic_briefed(t["slug"], now.replace(microsecond=0).isoformat())
         stats["topics_briefed"] += 1
 
+    # 1b) Topic embedding index (0030): ensure every topic has a meta vector and
+    # embed any recent brief lacking one (nightly builds above + on-demand
+    # rundowns). Best-effort — disabled (no OpenAI key) just skips this.
+    if config.embeddings_enabled():
+        try:
+            from .topic_index import embed_pending_briefs, ensure_meta_embeddings
+
+            ensure_meta_embeddings(store)
+            stats["briefs_embedded"] = embed_pending_briefs(store)
+        except Exception as exc:  # never let embedding sink the nightly run
+            log.warning("embedding sweep failed: %s", exc)
+
     # 2) Email each email-enabled user with subscriptions: "brief ready".
     for user in store.users_with_email_enabled():
         subs = store.user_subscriptions(user["id"])

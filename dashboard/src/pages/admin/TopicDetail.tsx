@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import SearchIcon from "@mui/icons-material/Search";
 import DownloadIcon from "@mui/icons-material/CloudDownloadOutlined";
@@ -24,6 +24,28 @@ export function TopicDetail() {
   const [briefing, setBriefing] = useState(false);
   // Click a source card to filter Recent items to that source.
   const [selected, setSelected] = useState<number | null>(null);
+  // Source list search + pagination (search spans ALL sources, not just the page).
+  const [srcSearch, setSrcSearch] = useState("");
+  const [srcPageSize, setSrcPageSize] = useState(25);
+  const [srcPage, setSrcPage] = useState(1);
+
+  const filteredSources = useMemo(() => {
+    const q = srcSearch.trim().toLowerCase();
+    if (!q) return active;
+    return active.filter(
+      (s) => s.name.toLowerCase().includes(q) || s.url.toLowerCase().includes(q),
+    );
+  }, [active, srcSearch]);
+
+  const srcPageCount = Math.max(1, Math.ceil(filteredSources.length / srcPageSize));
+  // Clamp the page when the filtered set shrinks (search/resize) so we never show empty.
+  const srcPageClamped = Math.min(srcPage, srcPageCount);
+  const pagedSources = filteredSources.slice(
+    (srcPageClamped - 1) * srcPageSize,
+    srcPageClamped * srcPageSize,
+  );
+  // Reset to page 1 whenever the search or page size changes.
+  useEffect(() => setSrcPage(1), [srcSearch, srcPageSize]);
 
   const load = useCallback(async () => {
     try {
@@ -256,9 +278,34 @@ export function TopicDetail() {
           </p>
         ) : (
           <>
+            <div className="src-toolbar">
+              <div className="filter-search src-search">
+                <SearchIcon fontSize="small" className="filter-ico" />
+                <input
+                  placeholder="Search sources by name or URL…"
+                  value={srcSearch}
+                  maxLength={100}
+                  onChange={(e) => setSrcSearch(e.target.value)}
+                />
+              </div>
+              <label className="src-pagesize muted small">
+                Per page
+                <select
+                  value={srcPageSize}
+                  onChange={(e) => setSrcPageSize(Number(e.target.value))}
+                >
+                  {[10, 25, 50].map((n) => (
+                    <option key={n} value={n}>{n}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
             <p className="muted small">Click a source to filter the items below.</p>
+            {filteredSources.length === 0 ? (
+              <p className="muted">No sources match “{srcSearch}”.</p>
+            ) : (
             <ul className="list">
-              {active.map((s) => (
+              {pagedSources.map((s) => (
                 <li
                   key={s.id}
                   className={`list-row src-card${selected === s.id ? " selected" : ""}${s.status === "disabled" ? " disabled" : ""}`}
@@ -305,6 +352,29 @@ export function TopicDetail() {
                 </li>
               ))}
             </ul>
+            )}
+            {srcPageCount > 1 && (
+              <div className="src-pager">
+                <button
+                  className="btn ghost"
+                  disabled={srcPageClamped <= 1}
+                  onClick={() => setSrcPage(srcPageClamped - 1)}
+                >
+                  Prev
+                </button>
+                <span className="muted small">
+                  Page {srcPageClamped} of {srcPageCount} · {filteredSources.length} source
+                  {filteredSources.length === 1 ? "" : "s"}
+                </span>
+                <button
+                  className="btn ghost"
+                  disabled={srcPageClamped >= srcPageCount}
+                  onClick={() => setSrcPage(srcPageClamped + 1)}
+                >
+                  Next
+                </button>
+              </div>
+            )}
           </>
         )}
       </section>

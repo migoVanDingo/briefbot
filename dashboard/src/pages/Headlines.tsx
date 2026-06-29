@@ -263,15 +263,15 @@ export function Headlines() {
 }
 
 function BriefCard({ brief }: { brief: Brief }) {
-  // The topic's header image is generated once in the background (0024). While it's
-  // pending, poll the (cached) rundown until it's ready, then swap in the image.
+  // Each day's brief gets its OWN header image, generated in the background (0032).
+  // While pending, poll that day's brief (by date) until it's ready, then swap it in.
   const [imgStatus, setImgStatus] = useState(brief.image_status);
   const [imgUrl, setImgUrl] = useState(brief.image_url);
 
   useEffect(() => {
     setImgStatus(brief.image_status);
     setImgUrl(brief.image_url);
-  }, [brief.image_status, brief.image_url, brief.topic_slug]);
+  }, [brief.image_status, brief.image_url, brief.topic_slug, brief.date]);
 
   useEffect(() => {
     if (imgStatus !== "pending") return;
@@ -282,8 +282,8 @@ function BriefCard({ brief }: { brief: Brief }) {
         return;
       }
       try {
-        const d = await api.topicRundown(brief.topic_slug);
-        const b = d.rundown;
+        const days = await api.topicBriefs(brief.topic_slug);
+        const b = days.find((x) => x.date === brief.date)?.brief;
         if (b && b.image_status !== "pending") {
           setImgStatus(b.image_status);
           setImgUrl(b.image_url);
@@ -294,7 +294,7 @@ function BriefCard({ brief }: { brief: Brief }) {
       }
     }, 5000);
     return () => window.clearInterval(id);
-  }, [imgStatus, brief.topic_slug]);
+  }, [imgStatus, brief.topic_slug, brief.date]);
 
   return (
     <section className="brief">

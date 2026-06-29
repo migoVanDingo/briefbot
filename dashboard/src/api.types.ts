@@ -287,6 +287,43 @@ export interface Profile {
   usage: { day: UsageWindow; week: UsageWindow; month: UsageWindow; year: UsageWindow; all: UsageWindow };
 }
 
+// On-demand source discovery (0030): a background web search surfaced in chat.
+export interface DiscoveryArticle {
+  title: string;
+  url: string;
+}
+export interface DiscoveryCandidate {
+  name: string;
+  url: string;
+  sample_articles: DiscoveryArticle[];
+}
+export interface DiscoveryWebResult {
+  title: string;
+  url: string;
+  snippet: string;
+}
+export interface DiscoveryRun {
+  id: string;
+  query: string;
+  stage: string | null;
+  status: "running" | "done" | "error";
+  failed: boolean;
+  error: string | null;
+  message_id: string | null;
+  conversation_id: string | null;
+  committed: boolean;
+  candidates: DiscoveryCandidate[];
+  web_results: DiscoveryWebResult[];
+}
+export interface PlacementDecision {
+  mode: "existing" | "new";
+  created_new: boolean;
+  topics: { slug: string; name: string; score: number }[];
+  sources_added: number;
+  scores: { slug: string; name: string; score: number }[];
+  query: string;
+}
+
 export interface DiscoverStats {
   queries: number;
   results: number;

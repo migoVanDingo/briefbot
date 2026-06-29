@@ -131,12 +131,16 @@ def test_reset_orphaned_image_jobs():
     store = Store(":memory:")
     uid = store.add_user("Me", "me@example.com")
     tid = store.add_topic("ai", "AI")
-    store.claim_avatar(uid, "x")          # avatar → pending
-    store.claim_topic_image("ai")          # topic image → pending
+    store.upsert_brief({
+        "id": "BRF1", "topic_id": tid, "date": "2030-06-01", "title": "t",
+        "summary": "s", "trending": [], "sources": [], "model": "x",
+    })
+    store.claim_avatar(uid, "x")               # avatar → pending
+    store.claim_brief_image(tid, "2030-06-01")  # per-day brief image → pending
     n = store.reset_orphaned_image_jobs()
     assert n == 2
     assert store.get_user_by_id(uid)["avatar_status"] == "none"
-    assert store.get_topic("ai")["image_status"] == "none"
+    assert store.get_brief(tid, "2030-06-01")["image_status"] == "none"
     # now re-claimable (the stuck-forever case is fixed)
     assert store.claim_avatar(uid, "y") is True
-    assert store.claim_topic_image("ai") is True
+    assert store.claim_brief_image(tid, "2030-06-01") is True

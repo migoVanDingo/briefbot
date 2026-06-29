@@ -107,7 +107,7 @@ class _StubSession:
 
 def test_brave_search_parses_results():
     out = brave_search("q", api_key="k", session=_StubSession())
-    assert out == [{"url": "https://x.example/a", "title": "A"}]
+    assert out == [{"url": "https://x.example/a", "title": "A", "description": ""}]
 
 
 def test_craft_queries_uses_llm_with_fallback():
@@ -174,3 +174,83 @@ def test_provision_errors_when_no_sources(monkeypatch):
     )
     assert events[-1]["type"] == "error"
     assert "couldn't find good sources" in events[-1]["message"]
+
+
+# ---- topic-agnostic discovery for a free-text query (0030) ----
+
+def test_discover_for_query_returns_candidates_web_and_headlines():
+    from bbv2.discovery import discover_for_query
+
+    def fake_search(query, n):
+        return [
+            {"url": "https://edutech.example/post", "title": "EdTech Today",
+             "description": "K-12 learning research"},
+            {"url": "https://journal.example/a", "title": "Journal of Learning",
+             "description": "papers"},
+        ]
+
+    def fake_feed_finder(site):
+        return [f"{site}feed/"]
+
+    def fake_headlines(feed_url):
+        return [
+            {"title": "Multimodal learning in classrooms", "url": f"{feed_url}a"},
+            {"title": "K-12 EdTech trends", "url": f"{feed_url}b"},
+            {"title": "extra", "url": f"{feed_url}c"},
+            {"title": "more", "url": f"{feed_url}d"},
+        ]
+
+    res = discover_for_query(
+        "multimodal learning in K-12", "",
+        searcher=fake_search, feed_finder=fake_feed_finder,
+        headline_finder=fake_headlines, generate=lambda p, **k: '["q1"]',
+        sample_articles=3,
+    )
+    assert res["query"] == "multimodal learning in K-12"
+    urls = {c["url"] for c in res["candidates"]}
+    assert "https://edutech.example/feed/" in urls
+    assert "https://journal.example/feed/" in urls
+    # sample articles captured (title+url) + capped at 3
+    cand = next(c for c in res["candidates"] if c["url"] == "https://edutech.example/feed/")
+    assert [a["title"] for a in cand["sample_articles"]] == [
+        "Multimodal learning in classrooms", "K-12 EdTech trends", "extra"
+    ]
+    assert cand["sample_articles"][0]["url"] == "https://edutech.example/feed/a"
+    # web results carry the Brave snippet
+    assert res["web_results"][0]["snippet"] == "K-12 learning research"
+    assert len(res["web_results"]) == 2
+
+
+def test_discover_for_query_skips_existing_feeds():
+    from bbv2.discovery import discover_for_query
+    from bbv2.store import Store
+
+    store = Store(":memory:")
+    store.add_source("rss", "https://dup.example/feed/", "Dup")
+    res = discover_for_query(
+        "x", store=store,
+        searcher=lambda q, n: [{"url": "https://dup.example/p", "title": "Dup"}],
+        feed_finder=lambda site: [f"{site}feed/"],
+        generate=lambda p, **k: '["q1"]',
+    )
+    assert res["candidates"] == []  # already a source → not proposed
+
+
+def test_discover_for_query_names_by_site_and_strips_html():
+    """Sources are named by SITE (clean domain), not an article title; web snippets
+    have their Brave <strong> highlight HTML stripped (0030 UX fix)."""
+    from bbv2.discovery import discover_for_query
+
+    res = discover_for_query(
+        "x",
+        searcher=lambda q, n: [{
+            "url": "https://www.eschoolnews.com/some-article",
+            "title": "Some Long Article Headline",
+            "description": "K-12 <strong>multimodal</strong> learning &amp; AI",
+        }],
+        feed_finder=lambda site: [f"{site}feed/"],
+        generate=lambda p, **k: '["q1"]',
+    )
+    assert res["candidates"][0]["name"] == "eschoolnews.com"  # site, not the headline
+    snip = res["web_results"][0]["snippet"]
+    assert snip == "K-12 multimodal learning & AI" and "<strong>" not in snip

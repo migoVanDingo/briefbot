@@ -396,3 +396,37 @@ tr.row-click:hover td {
     border-radius: 14px 14px 0 0;
   }
 }
+
+/* ---- source search + pagination (admin TopicDetail) ---- */
+.src-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.src-toolbar .src-search {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+.src-pagesize {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+.src-pagesize select {
+  padding: 6px 8px;
+}
+.src-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 12px;
+}
+@media (max-width: 560px) {
+  .src-toolbar .src-search {
+    flex: 1 1 100%;
+  }
+}

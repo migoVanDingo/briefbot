@@ -14,21 +14,21 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Iterator
 
 from . import config, ids
+from .agent_runs import (
+    _commit_sources,
+    _create_topic_events,
+    _find_sources_events,
+    _slugify,
+)
 from .agent_tools import TOOL_SCHEMAS
 from .cluster import cluster_items
 from .llm import LLMError, anthropic_messages, generate_text
 from .store import Store
-from .usage import (
-    SYSTEM_USER_ID,
-    budget_status,
-    meter_usage,
-    metered_generate,
-    metered_relevance_generate,
-)
+from .usage import budget_status, meter_usage, metered_generate
 
 log = logging.getLogger("bbv2.agent")
 
@@ -85,9 +85,35 @@ def _system_prompt() -> str:
     )
 
 
-def _context_block(store: Store, user_id: int) -> str:
+def _discovery_context(store: Store, user_id: int, conversation_id: str | None) -> str | None:
+    """If there's a recent, not-yet-added source search in this conversation, give
+    the agent its sources + a few article titles so it can discuss them (0031)."""
+    if not conversation_id:
+        return None
+    within = (datetime.now(timezone.utc) - timedelta(minutes=30)).replace(microsecond=0).isoformat()
+    run = store.recent_uncommitted_discovery(user_id, conversation_id, within)
+    if not run:
+        return None
+    result = store.discovery_result(run["id"]) or {}
+    cands = result.get("candidates") or []
+    if not cands:
+        return None
+    parts = []
+    for c in cands[:6]:
+        titles = "; ".join(a.get("title", "") for a in (c.get("sample_articles") or [])[:2])
+        parts.append(f"{c.get('name')} [{titles}]" if titles else str(c.get("name")))
+    return (
+        f'Recent web search you ran (sources NOT yet added to the feed): '
+        f'"{run["query"]}". Found sources: {", ".join(parts)}. '
+        "To list more of a source's articles use read_source; to summarize one use "
+        "summarize_article with its url. Don't claim you can't browse these — you can."
+    )
+
+
+def _context_block(store: Store, user_id: int, conversation_id: str | None = None) -> str:
     """Per-turn user context appended to the system prompt (no extra LLM call):
-    subscriptions, other available platform topics, and token-budget status."""
+    subscriptions, other available platform topics, token-budget status, and any
+    recent source search the user might ask about (0031)."""
     subs = store.user_subscriptions(user_id)
     sub_names = [t["name"] for t in subs]
     sub_slugs = {t["slug"] for t in subs}
@@ -120,6 +146,9 @@ def _context_block(store: Store, user_id: int) -> str:
             + ", ".join(f"{r['topic_name']} ({r['stage']})" for r in active)
             + "."
         )
+    discovery = _discovery_context(store, user_id, conversation_id)
+    if discovery:
+        lines.append(discovery)
     return "\n".join(lines)
 
 
@@ -154,15 +183,55 @@ def _resolve_folder_id(store: Store, user_id: int, name: str | None) -> str:
     return store.create_folder(user_id, (name or "favorites").strip() or "favorites")
 
 
+def _resolve_source_feed(
+    store: Store, user_id: int, conversation_id: str | None, source: str
+) -> str | None:
+    """Resolve a user-referenced source to a feed URL (0031): a literal URL, else a
+    match against the conversation's latest search candidates, else a subscribed
+    source — by domain/name/url substring."""
+    source = (source or "").strip()
+    if not source:
+        return None
+    if source.startswith("http://") or source.startswith("https://"):
+        return source
+    s = source.lower()
+    if conversation_id:
+        run = store.latest_discovery_with_results(user_id, conversation_id)
+        if run:
+            for c in (store.discovery_result(run["id"]) or {}).get("candidates", []):
+                name, url = (c.get("name") or "").lower(), (c.get("url") or "").lower()
+                if name and (s in name or name in s) or (url and s in url):
+                    return c.get("url")
+    for sub in store.user_subscriptions(user_id):
+        for src in store.list_sources(sub["slug"]):
+            if s in (src["name"] or "").lower() or s in (src["url"] or "").lower():
+                return src["url"]
+    return None
+
+
 def execute_tool(
     store: Store,
     user_id: int,
     name: str,
     args: dict[str, Any],
     summarize_generate: Callable[..., str],
+    conversation_id: str | None = None,
 ) -> tuple[Any, str]:
     """Run a tool; returns (result, short_summary)."""
     args = args or {}
+    if name == "read_source":
+        from .discovery import fetch_feed_articles
+
+        source = (args.get("source") or "").strip()
+        feed_url = _resolve_source_feed(store, user_id, conversation_id, source)
+        if not feed_url:
+            return {"error": f"couldn't find a source matching '{source}'"}, "no source"
+        articles = fetch_feed_articles(store, feed_url, limit=int(args.get("limit") or 15))
+        if not articles:
+            return {"source": source, "feed_url": feed_url, "articles": [],
+                    "error": "no readable articles (feed may be down)"}, "no articles"
+        return {"source": source, "feed_url": feed_url, "articles": articles}, f"{len(articles)} articles"
+
     if name == "search_stories":
         rows = store.query_stories(
             user_id,
@@ -195,6 +264,23 @@ def execute_tool(
         return {"trending": trend}, f"{len(trend)} storylines"
 
     if name == "summarize_article":
+        # `url` summarizes ANY article (e.g. one from a find_sources result, not yet
+        # subscribed); otherwise search the user's subscribed stories by `query`.
+        direct_url = (args.get("url") or "").strip()
+        if direct_url:
+            text = _fetch_text(direct_url)
+            title = (args.get("title") or "").strip() or direct_url
+            if not text:
+                return {"title": title, "url": direct_url, "error": "no readable content"}, "no content"
+            prompt = (
+                "Summarize this article in 4-6 sentences for a busy reader. Be faithful "
+                f"to the text; do not invent facts.\n\nTitle: {title}\n\n{text}"
+            )
+            try:
+                summary_md = summarize_generate(prompt, max_tokens=500, temperature=0.2)
+            except LLMError as exc:
+                return {"title": title, "url": direct_url, "error": str(exc)}, "summary failed"
+            return {"title": title, "url": direct_url, "summary": summary_md}, "summarized"
         rows = store.query_stories(user_id, search=(args.get("query") or "").strip() or None, limit=1)
         if not rows:
             return {"error": f"no story matched: {args.get('query')}"}, "no match"
@@ -327,101 +413,6 @@ def _default_title(user_text: str, generate: Callable[..., str] = generate_text)
     return (title or (user_text or "New chat").strip())[:80]
 
 
-def _slugify(name: str) -> str:
-    out = "".join(c if c.isalnum() else "-" for c in (name or "").lower())
-    while "--" in out:
-        out = out.replace("--", "-")
-    return out.strip("-")[:40]
-
-
-def _create_topic_events(
-    store: Store,
-    user_id: int,
-    args: dict[str, Any],
-    *,
-    conversation_id: str,
-    message_id: str,
-    moderate_generate: Callable[..., str] | None,
-    review_generate: Callable[..., str] | None,
-) -> Iterator[dict[str, Any]]:
-    """Create a topic and kick off its provisioning as a **background run** (0023).
-
-    Yields `tool_start`, a `topic_run` (so the pill appears in the live message),
-    then `tool_end`; returns `(result, summary)` for the model's tool_result. The
-    pipeline advances in the background and is observed by polling — so it survives
-    the user navigating away. The hard token budget gates this."""
-    from . import provision_runner
-    from .moderation import ModerationError, moderate_topic
-
-    name = (args.get("name") or "").strip()
-    if not name:
-        return {"error": "a topic name is required"}, "missing name"
-
-    gate = budget_status(store, user_id)
-    if not gate["allowed"]:
-        return {"error": gate["message"], "limit_reached": True}, "limit reached"
-
-    # Meter the moderation LLM call to the acting user (tests inject a stub).
-    mod_gen = moderate_generate or metered_generate(store, user_id, "moderation")
-    try:
-        clean = moderate_topic(
-            _slugify(name),
-            name,
-            mod_gen,
-            fail_closed=config.moderation_fail_closed(),
-        )
-    except ModerationError as exc:
-        return {"error": f"topic rejected: {exc.reason}"}, "rejected"
-    slug, display = clean["slug"], clean["name"]
-    existed = store.get_topic(slug) is not None
-    store.add_topic(slug, display, (args.get("description") or "").strip())
-    topic = store.get_topic(slug)
-    # Subscribe now — the user asked for it; provisioning fills in the stories.
-    store.subscribe(user_id, int(topic["id"]))
-
-    # Build a brief during provisioning while the user is still in their initial
-    # setup window (account age — reload-proof), so every topic they add then
-    # populates the first Headlines. System bucket (shared artifact).
-    building_brief = store.is_recent_user(
-        user_id, config.onboard_brief_window_min() * 60
-    )
-    brief_generate = (
-        metered_generate(store, SYSTEM_USER_ID, "rundown", topic_id=int(topic["id"]))
-        if building_brief
-        else None
-    )
-
-    run_id = store.create_run(
-        user_id, slug, display, surface="chat",
-        conversation_id=conversation_id, message_id=message_id,
-    )
-    # Query crafting is a cheap system call → Grok (Haiku fallback), not Haiku.
-    query_generate = metered_relevance_generate(store, user_id, "discovery", int(topic["id"]))
-    provision_runner.submit(
-        store, run_id, slug, query_generate=query_generate,
-        review_generate=review_generate, brief_generate=brief_generate,
-    )
-
-    yield {"type": "tool_start", "name": "create_topic"}
-    yield {"type": "topic_run", "slug": slug, "name": display, "run_id": run_id, "stage": "discovering"}
-    summary = f"setting up '{display}'…"
-    yield {"type": "tool_end", "name": "create_topic", "summary": summary}
-    return (
-        {
-            "created": not existed,
-            "existed": existed,
-            "slug": slug,
-            "name": display,
-            "subscribed": True,
-            "status": "provisioning",
-            # The pipeline is running in the background; the model should tell the
-            # user we're setting it up now (not report final counts).
-            "headline_ready": building_brief,
-        },
-        summary,
-    )
-
-
 # ---- the turn ----------------------------------------------------------------
 
 def run_chat_turn(
@@ -470,7 +461,7 @@ def run_chat_turn(
         store.append_message(conversation_id, user_id, "assistant", GREETING)
     store.append_message(conversation_id, user_id, "user", user_text)
     messages = _history(store, conversation_id)
-    system = _system_prompt() + _context_block(store, user_id)
+    system = _system_prompt() + _context_block(store, user_id, conversation_id)
 
     # Pre-mint the assistant message id so provision runs (create_topic) can link to
     # it and re-hydrate inline on reload (0023). Announced to the client up front.
@@ -531,9 +522,28 @@ def run_chat_turn(
                         moderate_generate=moderate_generate,
                         review_generate=review_generate,
                     )
+                elif name == "find_sources":
+                    # Spawns a background web-search run + emits tool_start/search_run/tool_end.
+                    result, summary = yield from _find_sources_events(
+                        store,
+                        user_id,
+                        args,
+                        conversation_id=conversation_id,
+                        message_id=assistant_message_id,
+                    )
+                elif name == "commit_sources":
+                    # Places the latest search's sources into topic(s) — embedding-routed.
+                    yield {"type": "tool_start", "name": name}
+                    result, summary = _commit_sources(
+                        store, user_id, conversation_id, moderate_generate, review_generate
+                    )
+                    yield {"type": "tool_end", "name": name, "summary": summary}
                 else:
                     yield {"type": "tool_start", "name": name}
-                    result, summary = execute_tool(store, user_id, name, args, summarize_generate)
+                    result, summary = execute_tool(
+                        store, user_id, name, args, summarize_generate,
+                        conversation_id=conversation_id,
+                    )
                     yield {"type": "tool_end", "name": name, "summary": summary}
             except Exception as exc:  # noqa: BLE001 - keep the stream alive
                 log.exception("chat tool %r failed user=%s", name, user_id)

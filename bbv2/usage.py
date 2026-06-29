@@ -80,10 +80,13 @@ def metered_relevance_generate(
 
 def estimate_cost(model: str | None, input_tokens: int, output_tokens: int) -> float:
     """Estimated USD for a call from `config.llm_prices()` (per 1M tokens). Grok
-    models map to the 'grok' price, everything else (Haiku/Claude) to 'haiku'.
-    A ballpark for the cost trend — not a billed amount."""
+    models map to the 'grok' price, embedding models to the embed price, everything
+    else (Haiku/Claude) to 'haiku'. A ballpark for the cost trend — not a billed amount."""
+    m = (model or "").lower()
+    if "embedding" in m or "embed" in m:  # embeddings priced per-input-token (0030)
+        return input_tokens * config.embed_price() / 1_000_000
     prices = config.llm_prices()
-    family = "grok" if model and "grok" in model.lower() else "haiku"
+    family = "grok" if "grok" in m else "haiku"
     p = prices[family]
     return (input_tokens * p["in"] + output_tokens * p["out"]) / 1_000_000
 

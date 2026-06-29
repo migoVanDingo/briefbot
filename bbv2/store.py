@@ -16,6 +16,8 @@ from .store_cache import CacheQueriesMixin
 from .store_chat import ChatQueriesMixin
 from .store_consumer import ConsumerTokenMixin
 from .store_dashboard import DashboardQueriesMixin
+from .store_discovery import DiscoveryRunsMixin
+from .store_embeddings import EmbeddingQueriesMixin
 from .store_favorites import FavoriteQueriesMixin
 from .store_metrics import MetricsQueriesMixin
 from .store_provision import ProvisionRunsMixin
@@ -41,6 +43,8 @@ class Store(
     SpaceQueriesMixin,
     MetricsQueriesMixin,
     ProvisionRunsMixin,
+    EmbeddingQueriesMixin,
+    DiscoveryRunsMixin,
 ):
     def __init__(self, db_path: str | Path, check_same_thread: bool = True) -> None:
         path = str(db_path)
@@ -121,6 +125,9 @@ class Store(
             ("users", "avatar_path", "TEXT"),
             ("users", "avatar_status", "TEXT NOT NULL DEFAULT 'none'"),
             ("users", "avatar_prompt", "TEXT"),
+            # Per-day brief images (0032).
+            ("briefs", "image_path", "TEXT"),
+            ("briefs", "image_status", "TEXT NOT NULL DEFAULT 'none'"),
         ):
             try:
                 self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
@@ -175,26 +182,6 @@ class Store(
 
     def list_topics(self) -> list[sqlite3.Row]:
         return self.conn.execute("SELECT * FROM topics ORDER BY slug").fetchall()
-
-    def set_topic_image(self, slug: str, image_path: str | None, status: str) -> None:
-        """Record a topic's generated header image (0024). status: pending/ready/error."""
-        self.conn.execute(
-            "UPDATE topics SET image_path = ?, image_status = ? WHERE slug = ?",
-            (image_path, status, slug),
-        )
-        self.conn.commit()
-
-    def claim_topic_image(self, slug: str) -> bool:
-        """Atomically move a topic's image from unset → 'pending'. Returns True only
-        for the caller that won the claim, so concurrent first-views don't double-fire
-        the (paid) image gen. SQLite serializes the UPDATE, closing the TOCTOU."""
-        cur = self.conn.execute(
-            "UPDATE topics SET image_status = 'pending' "
-            "WHERE slug = ? AND (image_status IS NULL OR image_status IN ('', 'none'))",
-            (slug,),
-        )
-        self.conn.commit()
-        return cur.rowcount == 1
 
     # ---- sources ----
     def add_source(

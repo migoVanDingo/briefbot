@@ -99,6 +99,7 @@ class ProvisionRunsMixin:
         Reset those back to 'none' so they can be re-kicked. Returns the count."""
         n = 0
         for sql in (
+            "UPDATE briefs SET image_status = 'none' WHERE image_status = 'pending'",
             "UPDATE topics SET image_status = 'none' WHERE image_status = 'pending'",
             "UPDATE users SET avatar_status = 'none' WHERE avatar_status = 'pending'",
         ):

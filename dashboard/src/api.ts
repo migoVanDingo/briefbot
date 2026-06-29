@@ -96,9 +96,9 @@ export * from "./api.types";
 // Types used by the client below are also imported locally (noUnusedLocals).
 import type {
   Brief, BriefDay, ChatMessage, CollectStats, ConversationMeta, DiscoverStats,
-  Favorite, Folder, Item, LlmMetrics, Me, Profile, ProvisionRun, ScheduleDefaults,
-  SchedulePatch, Settings, Source, Story, StoryFilters, Topic, TopicSchedule,
-  TopicTab, UsageStats, UserDetail, UserMetrics,
+  DiscoveryRun, Favorite, Folder, Item, LlmMetrics, Me, PlacementDecision, Profile,
+  ProvisionRun, ScheduleDefaults, SchedulePatch, Settings, Source, Story,
+  StoryFilters, Topic, TopicSchedule, TopicTab, UsageStats, UserDetail, UserMetrics,
 } from "./api.types";
 
 export const api = {
@@ -191,6 +191,13 @@ export const api = {
     req<{ runs: ProvisionRun[] }>(
       `/api/provisioning${conversation ? `?conversation=${encodeURIComponent(conversation)}` : ""}`,
     ).then((d) => d.runs),
+  // On-demand source discovery (0030): poll the user's search runs + commit one.
+  discoveries: (conversation?: string) =>
+    req<{ runs: DiscoveryRun[] }>(
+      `/api/discoveries${conversation ? `?conversation=${encodeURIComponent(conversation)}` : ""}`,
+    ).then((d) => d.runs),
+  commitDiscovery: (runId: string) =>
+    req<PlacementDecision>(`/api/discoveries/${runId}/commit`, { method: "POST" }),
   subscribe: (slug: string) =>
     req(`/api/topics/${slug}/subscribe`, { method: "POST" }),
   unsubscribe: (slug: string) =>

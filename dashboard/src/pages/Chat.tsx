@@ -14,7 +14,9 @@ import {
 import { useToasts } from "../state/toasts";
 import { useAuth } from "../state/auth";
 import { useProvisioning } from "../lib/useProvisioning";
+import { useDiscoveries } from "../lib/useDiscoveries";
 import { ProvisionPipeline } from "../components/ProvisionPipeline";
+import { DiscoveryCard } from "../components/DiscoveryCard";
 import { LoadingBanner } from "../components/LoadingBanner";
 import { Markdown } from "../components/Markdown";
 import { DISCOVER_PHRASES, COLLECT_PHRASES } from "../lib/phrases";
@@ -63,6 +65,9 @@ export function Chat() {
   // Provisioning pipelines for this conversation, polled from the server (0023) so
   // they survive refresh/navigation. Rendered inline against their message id.
   const { runs, refresh: refreshRuns } = useProvisioning(activeId || undefined);
+  const { runs: discoveryRuns, refresh: refreshDiscoveries } = useDiscoveries(
+    activeId || undefined,
+  );
 
   // Abort an in-flight chat stream if the user navigates away mid-turn, so the
   // reader stops and we don't setState on an unmounted component.
@@ -206,6 +211,10 @@ export function Chat() {
           // A background provision run started — fetch it now so the pill appears
           // immediately, then the hook keeps polling it forward.
           refreshRuns();
+        } else if (type === "search_run") {
+          // A background source search started — fetch it so the results card
+          // appears, then the hook polls it to completion (0030).
+          refreshDiscoveries();
         } else if (type === "title") {
           setConvos((cs) =>
             cs.map((c) => (c.id === cid ? { ...c, title: ev.title as string } : c)),
@@ -223,6 +232,7 @@ export function Chat() {
         loadConvos();
         loadUsage();
         refreshRuns(); // keep polling any pipeline this turn kicked off
+        refreshDiscoveries(); // …and any source search
       }
     }
   };
@@ -310,6 +320,9 @@ export function Chat() {
             ) : (
               messages.map((m, i) => {
                 const msgRuns = m.id ? runs.filter((r) => r.message_id === m.id) : [];
+                const msgSearches = m.id
+                  ? discoveryRuns.filter((r) => r.message_id === m.id)
+                  : [];
                 return (
                 <div key={m.id ?? i} className={`msg-row ${m.role}`}>
                   <span className="msg-avatar" aria-hidden="true">
@@ -345,6 +358,9 @@ export function Chat() {
                         ))}
                       </div>
                     )}
+                    {msgSearches.map((r) => (
+                      <DiscoveryCard key={r.id} run={r} onCommitted={refreshDiscoveries} />
+                    ))}
                     <div className="msg-body">
                       {m.content ? (
                         m.role === "assistant" ? (
